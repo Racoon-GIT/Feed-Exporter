@@ -2,9 +2,9 @@
 Streaming XML Feed Generator for Google Shopping
 Writes XML incrementally to file instead of holding everything in memory
 MEMORY OPTIMIZED for large feeds (10,000+ items)
+No lxml dependency for streaming - uses direct file writing
 """
 
-from lxml import etree
 from typing import Dict
 from datetime import datetime, timezone
 import logging
@@ -32,37 +32,32 @@ class StreamingXMLGenerator:
         # Open file for writing
         self.file = open(output_path, 'wb')
         
-        # Create XML writer
-        self.writer = etree.xmlfile(self.file, encoding='utf-8')
-        self.writer.__enter__()
+        # Write XML declaration
+        self.file.write(b'<?xml version="1.0" encoding="UTF-8"?>\n')
         
-        # Write root element and feed metadata
-        self.feed = self.writer.element(
-            'feed',
-            nsmap={
-                None: "http://www.w3.org/2005/Atom",
-                'g': "http://base.google.com/ns/1.0"
-            }
-        )
-        self.feed.__enter__()
+        # Write opening feed tag
+        self.file.write(b'<feed xmlns="http://www.w3.org/2005/Atom" xmlns:g="http://base.google.com/ns/1.0">\n')
         
         # Write feed metadata
-        self._write_element('title', shop_info.get('title', 'Product Feed'))
-        
-        link_elem = etree.Element('link', rel='self', href=shop_info.get('url', ''))
-        self.writer.write(link_elem)
-        
-        self._write_element('updated', datetime.now(timezone.utc).isoformat())
+        self._write_simple('title', shop_info.get('title', 'Product Feed'))
+        self.file.write(f'  <link rel="self" href="{shop_info.get("url", "")}"/>\n'.encode('utf-8'))
+        self._write_simple('updated', datetime.now(timezone.utc).isoformat())
         
         self.items_written = 0
         
         logger.info(f"Streaming XML generator initialized: {output_path}")
     
-    def _write_element(self, tag: str, text: str):
+    def _write_simple(self, tag: str, text: str):
         """Write a simple text element"""
-        elem = etree.Element(tag)
-        elem.text = text
-        self.writer.write(elem)
+        from xml.sax.saxutils import escape
+        text_escaped = escape(str(text))
+        self.file.write(f'  <{tag}>{text_escaped}</{tag}>\n'.encode('utf-8'))
+    
+    def _write_google(self, tag: str, text: str):
+        """Write a Google Shopping namespaced element"""
+        from xml.sax.saxutils import escape
+        text_escaped = escape(str(text))
+        self.file.write(f'    <g:{tag}>{text_escaped}</g:{tag}>\n'.encode('utf-8'))
     
     def add_item(self, item_data: Dict):
         """
@@ -71,37 +66,47 @@ class StreamingXMLGenerator:
         Args:
             item_data: Dictionary with item fields (g:id, g:title, etc.)
         """
-        # Create entry element
-        with self.writer.element('entry'):
-            # Add each field
-            for field, value in item_data.items():
-                if not value and value != 0:  # Skip empty values but allow 0
-                    continue
-                
-                # Handle special field types
-                if field == 'g:additional_image_link':
-                    # Multiple additional images
-                    if isinstance(value, list):
-                        for img_url in value:
-                            if img_url:
-                                self._write_google_element('additional_image_link', img_url)
-                
-                elif field == 'g:product_detail':
-                    # Structured product details
-                    if isinstance(value, list):
-                        for detail in value:
-                            with self.writer.element("{http://base.google.com/ns/1.0}product_detail"):
-                                self._write_google_element('attribute_name', detail.get('attribute_name', ''))
-                                self._write_google_element('attribute_value', detail.get('attribute_value', ''))
-                
-                elif field.startswith('g:'):
-                    # Standard Google Shopping field
-                    field_name = field[2:]  # Remove 'g:' prefix
-                    self._write_google_element(field_name, str(value))
-                
-                else:
-                    # Standard Atom field
-                    self._write_element(field, str(value))
+        from xml.sax.saxutils import escape
+        
+        # Write opening entry tag
+        self.file.write(b'  <entry>\n')
+        
+        # Add each field
+        for field, value in item_data.items():
+            if not value and value != 0:  # Skip empty values but allow 0
+                continue
+            
+            # Handle special field types
+            if field == 'g:additional_image_link':
+                # Multiple additional images
+                if isinstance(value, list):
+                    for img_url in value:
+                        if img_url:
+                            self._write_google('additional_image_link', img_url)
+            
+            elif field == 'g:product_detail':
+                # Structured product details
+                if isinstance(value, list):
+                    for detail in value:
+                        self.file.write(b'    <g:product_detail>\n')
+                        attr_name = escape(str(detail.get('attribute_name', '')))
+                        attr_value = escape(str(detail.get('attribute_value', '')))
+                        self.file.write(f'      <g:attribute_name>{attr_name}</g:attribute_name>\n'.encode('utf-8'))
+                        self.file.write(f'      <g:attribute_value>{attr_value}</g:attribute_value>\n'.encode('utf-8'))
+                        self.file.write(b'    </g:product_detail>\n')
+            
+            elif field.startswith('g:'):
+                # Standard Google Shopping field
+                field_name = field[2:]  # Remove 'g:' prefix
+                self._write_google(field_name, str(value))
+            
+            else:
+                # Standard Atom field (not used typically, but keep for compatibility)
+                text_escaped = escape(str(value))
+                self.file.write(f'    <{field}>{text_escaped}</{field}>\n'.encode('utf-8'))
+        
+        # Write closing entry tag
+        self.file.write(b'  </entry>\n')
         
         self.items_written += 1
         
@@ -109,19 +114,10 @@ class StreamingXMLGenerator:
         if self.items_written % 1000 == 0:
             logger.info(f"  Written {self.items_written} items to XML...")
     
-    def _write_google_element(self, tag: str, text: str):
-        """Write a Google Shopping namespaced element"""
-        elem = etree.Element("{http://base.google.com/ns/1.0}" + tag)
-        elem.text = text
-        self.writer.write(elem)
-    
     def close(self):
         """Finalize and close the XML file"""
-        # Close feed element
-        self.feed.__exit__(None, None, None)
-        
-        # Close XML writer
-        self.writer.__exit__(None, None, None)
+        # Write closing feed tag
+        self.file.write(b'</feed>\n')
         
         # Close file
         self.file.close()
