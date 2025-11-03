@@ -1,6 +1,6 @@
 """
-Shopify API Client with Rate Limiting
-Handles automatic retry and rate limit management
+Shopify API Client with Rate Limiting - MEMORY OPTIMIZED
+Reduces memory usage by not fetching metafields unless needed
 """
 
 import requests
@@ -116,7 +116,7 @@ class ShopifyClient:
         raise Exception(f"Failed after {max_retries} retries")
     
     def get_products(self, limit: int = 250, fields: Optional[str] = None) -> List[Dict]:
-        """Get all products with pagination"""
+        """Get all products with pagination (WITHOUT metafields to save memory)"""
         products = []
         
         params = {'limit': limit}
@@ -183,15 +183,41 @@ class ShopifyClient:
             logger.error(f"❌ Error fetching metafields for product {product_id}: {e}")
             return {'metafields': []}
     
-    def get_products_with_metafields(self, limit: int = 250, fields: Optional[str] = None) -> List[Dict]:
-        """Get all products with their metafields"""
+    def get_products_with_metafields(self, limit: int = 250, fields: Optional[str] = None, 
+                                    max_products: Optional[int] = None) -> List[Dict]:
+        """
+        Get products with their metafields
+        
+        WARNING: This method is MEMORY INTENSIVE for large stores.
+        Use get_products() + selective get_product_metafields() instead.
+        
+        Args:
+            limit: Products per page
+            fields: Fields to fetch
+            max_products: Maximum number of products to fetch metafields for (to limit memory)
+        """
+        logger.warning("⚠️ get_products_with_metafields is memory intensive!")
+        logger.warning("⚠️ Consider using get_products() + selective metafield fetching")
+        
         products = self.get_products(limit=limit, fields=fields)
         
-        logger.info(f"📊 Fetching metafields for {len(products)} products...")
+        # Limit number of products if specified
+        if max_products and len(products) > max_products:
+            logger.warning(f"⚠️ Limiting metafield fetch to first {max_products} products to save memory")
+            products_to_fetch = products[:max_products]
+            products_skipped = products[max_products:]
+            
+            # Add empty metafields to skipped products
+            for product in products_skipped:
+                product['metafields'] = []
+        else:
+            products_to_fetch = products
         
-        for i, product in enumerate(products, 1):
+        logger.info(f"📊 Fetching metafields for {len(products_to_fetch)} products...")
+        
+        for i, product in enumerate(products_to_fetch, 1):
             if i % 50 == 0:
-                logger.info(f"  Progress: {i}/{len(products)}")
+                logger.info(f"  Progress: {i}/{len(products_to_fetch)}")
             
             product_id = product['id']
             metafields = self.get_product_metafields(product_id)
@@ -218,20 +244,3 @@ class ShopifyClient:
         except Exception as e:
             logger.error(f"❌ Connection test failed: {e}")
             return False
-
-
-# Example usage
-if __name__ == '__main__':
-    # Test with your credentials
-    SHOP_URL = "racoon-lab.myshopify.com"
-    ACCESS_TOKEN = "your_token_here"
-    
-    client = ShopifyClient(SHOP_URL, ACCESS_TOKEN)
-    
-    # Test connection
-    if client.test_connection():
-        # Get first 5 products
-        products = client.get_products(limit=5, fields='id,title,tags,variants')
-        print(f"\nRetrieved {len(products)} products")
-        for p in products:
-            print(f"  - {p['title']}")
