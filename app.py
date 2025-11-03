@@ -188,40 +188,32 @@ def api_status():
 
 @app.route('/api/trigger', methods=['GET', 'POST'])
 def api_trigger():
-    """Manually trigger feed generation"""
+    """Manually trigger feed generation in background"""
     try:
         import subprocess
+        import os
         
-        # Run main.py as subprocess
-        result = subprocess.run(
+        # Run main.py in background (non-blocking)
+        # Output goes to service logs, not captured
+        process = subprocess.Popen(
             ['python', 'main.py'],
-            capture_output=True,
-            text=True,
-            timeout=600  # 10 minutes max
+            stdout=None,  # Goes to service logs
+            stderr=None,  # Goes to service logs
+            cwd=os.getcwd()
         )
         
-        if result.returncode == 0:
-            return jsonify({
-                'success': True,
-                'message': 'Feed generation completed successfully',
-                'output': result.stdout
-            })
-        else:
-            return jsonify({
-                'success': False,
-                'message': 'Feed generation failed',
-                'error': result.stderr
-            }), 500
-            
-    except subprocess.TimeoutExpired:
         return jsonify({
-            'success': False,
-            'message': 'Feed generation timed out (>10 minutes)'
-        }), 500
+            'success': True,
+            'message': 'Feed generation started in background',
+            'pid': process.pid,
+            'note': 'Check service logs for progress. Feed will be ready in ~12-15 minutes.',
+            'status_url': '/api/status'
+        })
+        
     except Exception as e:
         return jsonify({
             'success': False,
-            'message': f'Error: {str(e)}'
+            'message': f'Error starting feed generation: {str(e)}'
         }), 500
 
 
