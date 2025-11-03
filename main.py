@@ -80,54 +80,46 @@ class FeedGeneratorService:
             
             generator = StreamingXMLGenerator(str(feed_path), shop_info)
             
-            # Process in batches to save memory
-            BATCH_SIZE = 100
+            # Process ONE product at a time with metafields
             total_items = 0
             products_with_reviews = 0
             
-            logger.info("Processing products in batches...")
+            logger.info("Processing products one-by-one with metafields (memory efficient)...")
             
-            for batch_start in range(0, len(products), BATCH_SIZE):
-                batch_end = min(batch_start + BATCH_SIZE, len(products))
-                batch = products[batch_start:batch_end]
+            for i, product in enumerate(products, 1):
+                # Progress logging
+                if i % 100 == 0:
+                    logger.info(f"  Progress: {i}/{len(products)} products ({total_items} items)")
                 
-                logger.info(f"Processing batch {batch_start}-{batch_end} ({len(batch)} products)...")
+                # Fetch metafields ONLY for this product (then discard)
+                metafields_data = self.client.get_product_metafields(product['id'])
+                metafields = {'metafields': metafields_data.get('metafields', [])}
                 
-                # Process batch
-                for product in batch:
-                    # For memory optimization: only fetch metafields if product has reviews indicator
-                    # Check if product might have reviews (based on tags or other indicators)
-                    might_have_reviews = self._might_have_reviews(product)
-                    
-                    if might_have_reviews:
-                        # Fetch metafields only for this product
-                        metafields_data = self.client.get_product_metafields(product['id'])
-                        metafields = {'metafields': metafields_data.get('metafields', [])}
-                        
-                        # Check if actually has reviews
-                        has_reviews = any(
-                            mf.get('namespace') in ['stamped', 'reviews', 'judgeme', 'loox']
-                            and mf.get('key') in ['reviews_average', 'rating', 'avg_rating']
-                            for mf in metafields.get('metafields', [])
-                        )
-                        if has_reviews:
-                            products_with_reviews += 1
-                    else:
-                        metafields = {'metafields': []}
-                    
-                    # Transform product
-                    items = self.transformer.transform_product(product, metafields)
-                    
-                    # Write items directly to XML (streaming)
-                    for item in items:
-                        generator.add_item(item)
-                        total_items += 1
+                # Check if has reviews
+                has_reviews = any(
+                    mf.get('namespace') in ['stamped', 'reviews', 'judgeme', 'loox']
+                    and mf.get('key') in ['reviews_average', 'rating', 'avg_rating']
+                    for mf in metafields.get('metafields', [])
+                )
+                if has_reviews:
+                    products_with_reviews += 1
                 
-                # Clear batch from memory
-                del batch
-                gc.collect()  # Force garbage collection
+                # Transform product (creates items for all variants)
+                items = self.transformer.transform_product(product, metafields)
                 
-                logger.info(f"  Batch complete. Total items so far: {total_items}")
+                # Write items IMMEDIATELY to XML (streaming)
+                for item in items:
+                    generator.add_item(item)
+                    total_items += 1
+                
+                # Clear this product and metafields from memory
+                del metafields_data
+                del metafields
+                del items
+                
+                # Force garbage collection every 50 products
+                if i % 50 == 0:
+                    gc.collect()
             
             # Finalize XML
             logger.info("Finalizing XML feed...")
@@ -161,7 +153,7 @@ class FeedGeneratorService:
             logger.info(f"Total items: {total_items}")
             logger.info(f"File size: {file_size_mb:.2f} MB")
             logger.info(f"Products with reviews: {products_with_reviews}")
-            logger.info(f"Memory optimization: Batch processing enabled")
+            logger.info(f"Memory optimization: Per-product streaming with metafields")
             logger.info("")
             
             return {
@@ -192,32 +184,6 @@ class FeedGeneratorService:
                 json.dump(metadata, f, indent=2)
             
             raise
-    
-    def _might_have_reviews(self, product):
-        """
-        Quick check if product might have reviews without fetching metafields
-        This is a heuristic to reduce unnecessary API calls
-        """
-        # For now, assume products might have reviews if they're popular/established
-        # You can add logic here based on tags, creation date, etc.
-        
-        # Example: Check if product has certain tags indicating it's reviewed
-        tags = product.get('tags', '')
-        if isinstance(tags, str):
-            tags = tags.lower()
-            # If you use specific tags for reviewed products, check here
-            # For now, be conservative and check metafields for all
-            
-        # Conservative approach: check first 200 products, skip rest
-        # This reduces memory while still capturing most reviewed products
-        product_id = product.get('id', 0)
-        
-        # Simple heuristic: older products (lower IDs) more likely to have reviews
-        # Adjust threshold based on your store
-        return False  # Disable metafield fetch to save memory
-        
-        # To enable selective fetching:
-        # return product_id < some_threshold
 
 
 def main():
@@ -229,7 +195,7 @@ def main():
         print("\n✅ Success!")
         print(f"Generated {result['items']} items from {result['products']} products")
         print(f"File size: {result['file_size'] / (1024*1024):.2f} MB")
-        print(f"Memory optimized: Batch processing used")
+        print(f"Memory optimized: Per-product streaming ⚡")
         
         if result['products_with_reviews'] > 0:
             print(f"⭐ {result['products_with_reviews']} products have star ratings!")
