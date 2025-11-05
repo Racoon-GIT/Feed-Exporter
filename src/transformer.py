@@ -20,7 +20,19 @@ class ProductTransformer:
         self.excluded_product_types = ['buon', 'gift', 'pacco', 'berretti', 'calz', 'shirt', 'felp', 'stringhe', 'outlet']
     
     def _should_exclude_product(self, product: Dict) -> bool:
-        """Check if product should be excluded based on product_type"""
+        """Check if product should be excluded based on various criteria"""
+        
+        # FILTER 1: Only active products
+        status = product.get('status', '').lower()
+        if status != 'active':
+            return True
+        
+        # FILTER 2: Exclude products with "Outlet" in title (case-insensitive)
+        title = product.get('title', '').lower()
+        if 'outlet' in title:
+            return True
+        
+        # FILTER 3: Exclude specific product types (case-insensitive)
         product_type = product.get('product_type', '').lower()
         
         for excluded in self.excluded_product_types:
