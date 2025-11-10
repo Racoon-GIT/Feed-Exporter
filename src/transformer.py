@@ -210,13 +210,8 @@ class ProductTransformer:
         # Product Highlight
         item['g:product_highlight'] = self._get_product_highlight(product, tags)
         
-        # REMOVED: shipping (as requested)
-        # REMOVED: tax (as requested)
-        
         # TAGS (for internal tracking)
         item['g:TAGS'] = ', '.join(tags)
-        
-        # REMOVED: product_rating and product_review_count (as requested)
         
         return item
     
@@ -249,7 +244,7 @@ class ProductTransformer:
         size = variant.get('option1', '')
         
         if size:
-            title = f"{title} - {size}"  # Removed "Taglia" word, just size value
+            title = f"{title} - {size}"
             
         return title[:150]
     
