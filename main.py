@@ -66,7 +66,7 @@ class FeedGeneratorService:
             logger.info("Fetching products (without metafields)...")
             products = self.client.get_products(
                 limit=250,
-                fields='id,title,handle,body_html,vendor,product_type,tags,variants,images'
+                fields='id,title,handle,body_html,vendor,product_type,tags,variants,images,status'
             )
             
             logger.info(f"Retrieved {len(products)} products")
