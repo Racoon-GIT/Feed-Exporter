@@ -16,12 +16,77 @@ class ProductTransformer:
         self.tag_categories = config_loader.tag_categories
         self.static_values = config_loader.static_values
         
+        # Excluded product type keywords (case-insensitive)
+        self.excluded_product_types = ['buon', 'gift', 'pacco', 'berretti', 'calz', 'shirt', 'felp', 'stringhe', 'outlet']
+    
+    def _should_exclude_product(self, product: Dict) -> bool:
+        """Check if product should be excluded based on various criteria"""
+        
+        # FILTER 1: Only active products
+        status = product.get('status', '').lower()
+        if status != 'active':
+            return True
+        
+        # FILTER 2: Exclude products with "Outlet" in title (case-insensitive)
+        title = product.get('title', '').lower()
+        if 'outlet' in title:
+            return True
+        
+        # FILTER 3: Exclude specific product types (case-insensitive)
+        product_type = product.get('product_type', '').lower()
+        
+        for excluded in self.excluded_product_types:
+            if excluded in product_type:
+                return True
+        
+        return False
+    
+    def _has_available_stock(self, product: Dict) -> bool:
+        """Check if at least one variant has stock > 0"""
+        variants = product.get('variants', [])
+        
+        for variant in variants:
+            if variant.get('inventory_quantity', 0) > 0:
+                return True
+        
+        return False
+    
+    def _should_exclude_variant(self, variant: Dict, product: Dict) -> bool:
+        """Check if variant should be excluded (personalizzazione in title)"""
+        # Build variant title
+        title = product.get('title', '')
+        size = variant.get('option1', '')
+        
+        if size:
+            variant_title = f"{title} - Taglia {size}"
+        else:
+            variant_title = title
+        
+        # Check for "personalizzazione" (case-insensitive)
+        if 'personalizzazione' in variant_title.lower():
+            return True
+        
+        return False
+        
     def transform_product(self, product: Dict, metafields: Optional[Dict] = None) -> List[Dict]:
         """Transform a Shopify product into Google Shopping items (one per variant)"""
+        
+        # FILTER 1: Check if product_type should be excluded
+        if self._should_exclude_product(product):
+            return []  # Skip this product entirely
+        
+        # FILTER 2: Check if product has at least one variant with stock
+        if not self._has_available_stock(product):
+            return []  # Skip product if all variants are out of stock
+        
         items = []
         tags = product.get('tags', '').split(', ') if isinstance(product.get('tags'), str) else product.get('tags', [])
         
         for variant in product.get('variants', []):
+            # FILTER 3: Skip variants with "personalizzazione" in title
+            if self._should_exclude_variant(variant, product):
+                continue
+            
             item = self.transform_variant(product, variant, tags, metafields)
             items.append(item)
             
@@ -40,19 +105,56 @@ class ProductTransformer:
         item['g:description'] = self._clean_html(product.get('body_html', ''))
         item['g:link'] = f"{self.base_url}/products/{product['handle']}?variant={variant['id']}"
         
-        # Images - MULTIPLE IMAGES SUPPORT
+        # Images - MULTIPLE IMAGES SUPPORT + Converse _INT logic
         images = product.get('images', [])
-        if images:
-            item['g:image_link'] = images[0].get('src', '')
-            # Add up to 10 additional images
-            additional_images = [img.get('src', '') for img in images[1:11]]
-            if additional_images:
-                item['g:additional_image_link'] = additional_images
+        brand = product.get('vendor', '').lower()
         
-        # Pricing
-        item['g:price'] = f"{float(variant['price']):.2f} EUR"
-        if variant.get('compare_at_price'):
-            item['g:sale_price'] = f"{float(variant['price']):.2f} EUR"
+        if images:
+            # Special handling for Converse: prioritize _INT images
+            if 'converse' in brand:
+                # Find _INT image
+                int_image = None
+                other_images = []
+                
+                for img in images:
+                    img_src = img.get('src', '')
+                    if '_INT' in img_src or '_int' in img_src:
+                        int_image = img_src
+                    else:
+                        other_images.append(img_src)
+                
+                # Use _INT as main image if found
+                if int_image:
+                    item['g:image_link'] = int_image
+                    # Add other images as additional (up to 10 total)
+                    if other_images:
+                        item['g:additional_image_link'] = other_images[:10]
+                else:
+                    # Fallback if no _INT found
+                    item['g:image_link'] = images[0].get('src', '')
+                    additional_images = [img.get('src', '') for img in images[1:11]]
+                    if additional_images:
+                        item['g:additional_image_link'] = additional_images
+            else:
+                # Standard image handling for non-Converse products
+                item['g:image_link'] = images[0].get('src', '')
+                # Add up to 10 additional images
+                additional_images = [img.get('src', '') for img in images[1:11]]
+                if additional_images:
+                    item['g:additional_image_link'] = additional_images
+        
+        # Pricing - FIXED LOGIC
+        compare_at = variant.get('compare_at_price')
+        price = float(variant['price'])
+        
+        if compare_at and float(compare_at) > 0:
+            # Product is on sale
+            item['g:price'] = f"{float(compare_at):.2f} EUR"
+            item['g:sale_price'] = f"{price:.2f} EUR"
+        else:
+            # Regular price, no sale
+            item['g:price'] = f"{price:.2f} EUR"
+            # Omit sale_price field when not on sale (Google best practice)
             
         # Basic attributes
         item['g:condition'] = self.static_values.get('condition', 'new')
@@ -68,7 +170,12 @@ class ProductTransformer:
         item['g:item_group_id'] = str(product['id'])
         
         # Identifiers
-        item['g:gtin'] = variant.get('barcode', '')
+        # GTIN from barcode - omit field if empty (Google best practice)
+        barcode = variant.get('barcode', '')
+        if barcode and str(barcode).strip():
+            item['g:gtin'] = str(barcode).strip()
+        # If no barcode, omit g:gtin field entirely
+        
         item['g:mpn'] = variant.get('sku', '')
         
         # Category
