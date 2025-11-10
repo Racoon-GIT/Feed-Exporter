@@ -210,21 +210,13 @@ class ProductTransformer:
         # Product Highlight
         item['g:product_highlight'] = self._get_product_highlight(product, tags)
         
-        # Shipping
-        shipping_cost = self._calculate_shipping(float(variant['price']))
-        item['g:shipping'] = f"IT:::{shipping_cost:.2f} EUR"
-        
-        # Tax
-        item['g:tax'] = "IT::22.00:yes"
+        # REMOVED: shipping (as requested)
+        # REMOVED: tax (as requested)
         
         # TAGS (for internal tracking)
         item['g:TAGS'] = ', '.join(tags)
         
-        # ⭐ STAR RATING - NEW in v3.0
-        rating_data = self._get_product_rating(metafield_data)
-        if rating_data:
-            item['g:product_rating'] = rating_data['rating']
-            item['g:product_review_count'] = rating_data['count']
+        # REMOVED: product_rating and product_review_count (as requested)
         
         return item
     
@@ -257,7 +249,7 @@ class ProductTransformer:
         size = variant.get('option1', '')
         
         if size:
-            title = f"{title} - Taglia {size}"
+            title = f"{title} - {size}"  # Removed "Taglia" word, just size value
             
         return title[:150]
     
