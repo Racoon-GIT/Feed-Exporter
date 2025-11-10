@@ -58,7 +58,7 @@ class ProductTransformer:
         size = variant.get('option1', '')
         
         if size:
-            variant_title = f"{title} - Taglia {size}"
+            variant_title = f"{title} - {size}"
         else:
             variant_title = title
         
