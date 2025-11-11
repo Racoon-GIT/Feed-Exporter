@@ -57,9 +57,10 @@ class ProductTransformer:
         # This allows products with "Personalizzazione" in the title to still be sold
         # but excludes specific variants like "Solo Personalizzazione"
         
-        option1 = variant.get('option1', '').lower()
-        option2 = variant.get('option2', '').lower()
-        option3 = variant.get('option3', '').lower()
+        # Handle None values properly - Shopify can return None for options
+        option1 = (variant.get('option1') or '').lower()
+        option2 = (variant.get('option2') or '').lower()
+        option3 = (variant.get('option3') or '').lower()
         
         # Exclude if ANY option contains "personalizzazione"
         if 'personalizzazione' in option1 or 'personalizzazione' in option2 or 'personalizzazione' in option3:
