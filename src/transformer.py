@@ -52,18 +52,17 @@ class ProductTransformer:
         return False
     
     def _should_exclude_variant(self, variant: Dict, product: Dict) -> bool:
-        """Check if variant should be excluded (personalizzazione in title)"""
-        # Build variant title
-        title = product.get('title', '')
-        size = variant.get('option1', '')
+        """Check if variant should be excluded (personalizzazione in variant options only)"""
+        # Check ONLY variant options (option1, option2, option3), NOT product title
+        # This allows products with "Personalizzazione" in the title to still be sold
+        # but excludes specific variants like "Solo Personalizzazione"
         
-        if size:
-            variant_title = f"{title} - {size}"
-        else:
-            variant_title = title
+        option1 = variant.get('option1', '').lower()
+        option2 = variant.get('option2', '').lower()
+        option3 = variant.get('option3', '').lower()
         
-        # Check for "personalizzazione" (case-insensitive)
-        if 'personalizzazione' in variant_title.lower():
+        # Exclude if ANY option contains "personalizzazione"
+        if 'personalizzazione' in option1 or 'personalizzazione' in option2 or 'personalizzazione' in option3:
             return True
         
         return False
