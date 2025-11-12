@@ -16,10 +16,16 @@ class ProductTransformer:
         self.config = config_loader
         self.base_url = base_url.rstrip('/')
         
-        # Load configuration
-        self.shipping_config = self.config.get_shipping_config()
-        self.category_mapping = self.config.get_category_mapping()
-        self.static_values = self.config.get_static_values()
+        # Use config static_values directly
+        self.static_values = self.config.static_values
+        
+        # Category mapping - hardcoded for Italian footwear market
+        self.category_mapping = {
+            'sneakers': '1856',  # Apparel & Accessories > Shoes
+            'scarpe': '1856',
+            'shoes': '1856',
+            'calzature': '1856'
+        }
         
         # Pattern mapping from DFW
         self.pattern_mapping = {
