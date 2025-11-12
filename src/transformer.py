@@ -1,78 +1,95 @@
 """
-Product Transformer - Converts Shopify products to Google Shopping format
-Version: 3.0 - With Star Rating & Multiple Images
+Product Transformer - Memory Optimized with All Fixes Applied
+Transforms Shopify products to Google Shopping feed format
 """
 
+import logging
+from typing import Dict, List, Optional
 import re
-from datetime import datetime
-from typing import Dict, List, Any, Optional
+import html
+
+logger = logging.getLogger(__name__)
 
 
 class ProductTransformer:
     def __init__(self, config_loader, base_url: str):
         self.config = config_loader
-        self.base_url = base_url
-        self.field_mapping = config_loader.field_mapping
-        self.tag_categories = config_loader.tag_categories
-        self.static_values = config_loader.static_values
+        self.base_url = base_url.rstrip('/')
         
-        # Excluded product type keywords (case-insensitive)
-        self.excluded_product_types = ['buon', 'gift', 'pacco', 'berretti', 'calz', 'shirt', 'felp', 'stringhe', 'outlet']
+        # Load configuration
+        self.shipping_config = self.config.get_shipping_config()
+        self.category_mapping = self.config.get_category_mapping()
+        self.static_values = self.config.get_static_values()
+        
+        # Pattern mapping from DFW
+        self.pattern_mapping = {
+            # Original DFW patterns
+            'animalier': 'animal print',
+            'a pois': 'polka dots',
+            'righe': 'striped',
+            'a quadri': 'checkered',
+            'camouflage': 'camouflage',
+            'floreale': 'floral',
+            'paisley': 'paisley',
+            'geometrico': 'geometric',
+            'astratto': 'abstract',
+            'tie-dye': 'tie-dye',
+            'stampa digitale': 'graphic print',
+            'patchwork': 'patchwork',
+            'ricamato': 'embroidered',
+            'jacquard': 'jacquard',
+            'damasco': 'damask',
+            'chevron': 'chevron',
+            'houndstooth': 'houndstooth',
+            'vichy': 'gingham',
+            'pied de poule': 'houndstooth',
+            'batik': 'batik',
+            'ombre': 'ombre',
+            'marmorizzato': 'marbled',
+            'splash': 'splatter',
+            'logo': 'logo',
+            'testo': 'text print',
+            'glitter': 'glitter',
+            'metalizzato': 'metallic',
+            'olografico': 'holographic',
+            'paillettes': 'sequined',
+            'perle': 'pearl',
+            'strass': 'rhinestone',
+            'lacci': 'lace',
+            'pizzo': 'lace',
+            'tulle': 'tulle',
+            'velluto': 'velvet',
+            'pelliccia': 'fur',
+            'pelle di serpente': 'snakeskin',
+            'coccodrillo': 'crocodile',
+            'denim': 'denim',
+            'jeans': 'denim',
+            'tartan': 'tartan',
+            'militare': 'military',
+            'nautical': 'nautical',
+            'tropicale': 'tropical',
+            'vintage': 'vintage',
+            'retrò': 'retro',
+            'boho': 'bohemian',
+            'etnico': 'ethnic',
+            'tribale': 'tribal',
+            'orientale': 'oriental',
+            'gotico': 'gothic',
+            'punk': 'punk',
+            'grunge': 'grunge',
+            'street': 'street art',
+            'pop art': 'pop art',
+            'minimal': 'minimalist',
+            'color block': 'color block'
+        }
     
-    def _should_exclude_product(self, product: Dict) -> bool:
-        """Check if product should be excluded based on various criteria"""
-        
-        # FILTER 1: Only active products
-        status = product.get('status', '').lower()
-        if status != 'active':
-            return True
-        
-        # FILTER 2: Exclude products with "Outlet" in title (case-insensitive)
-        title = product.get('title', '').lower()
-        if 'outlet' in title:
-            return True
-        
-        # FILTER 3: Exclude specific product types (case-insensitive)
-        product_type = product.get('product_type', '').lower()
-        
-        for excluded in self.excluded_product_types:
-            if excluded in product_type:
-                return True
-        
-        return False
-    
-    def _has_available_stock(self, product: Dict) -> bool:
-        """Check if at least one variant has stock > 0"""
-        variants = product.get('variants', [])
-        
-        for variant in variants:
-            if variant.get('inventory_quantity', 0) > 0:
-                return True
-        
-        return False
-    
-    def _should_exclude_variant(self, variant: Dict, product: Dict) -> bool:
-        """Check if variant should be excluded (personalizzazione in variant options only)"""
-        # Check ONLY variant options (option1, option2, option3), NOT product title
-        # This allows products with "Personalizzazione" in the title to still be sold
-        # but excludes specific variants like "Solo Personalizzazione"
-        
-        # Handle None values properly - Shopify can return None for options
-        option1 = (variant.get('option1') or '').lower()
-        option2 = (variant.get('option2') or '').lower()
-        option3 = (variant.get('option3') or '').lower()
-        
-        # Exclude if ANY option contains "personalizzazione"
-        if 'personalizzazione' in option1 or 'personalizzazione' in option2 or 'personalizzazione' in option3:
-            return True
-        
-        return False
-        
-    def transform_product(self, product: Dict, metafields: Optional[Dict] = None) -> List[Dict]:
-        """Transform a Shopify product into Google Shopping items (one per variant)"""
-        
-        # FILTER 1: Check if product_type should be excluded
-        if self._should_exclude_product(product):
+    def transform_product(self, product: Dict, metafields: Dict) -> List[Dict]:
+        """
+        Transform ONE Shopify product with metafields into Google Shopping items
+        Returns list of items (one per variant)
+        """
+        # FILTER 1: Check if product is active
+        if product.get('status') != 'active':
             return []  # Skip this product entirely
         
         # FILTER 2: Check if product has at least one variant with stock
@@ -81,537 +98,403 @@ class ProductTransformer:
         
         items = []
         tags = product.get('tags', '').split(', ') if isinstance(product.get('tags'), str) else product.get('tags', [])
+        collections = product.get('collections', [])  # Added: collections from main.py
         
         for variant in product.get('variants', []):
             # FILTER 3: Skip variants with "personalizzazione" in title
             if self._should_exclude_variant(variant, product):
                 continue
             
-            item = self.transform_variant(product, variant, tags, metafields)
+            item = self.transform_variant(product, variant, tags, metafields, collections)
             items.append(item)
             
         return items
     
-    def transform_variant(self, product: Dict, variant: Dict, tags: List[str], metafields: Optional[Dict] = None) -> Dict:
-        """Transform a single variant into a Google Shopping item"""
+    def transform_variant(self, product: Dict, variant: Dict, tags: List[str], 
+                         metafields: Dict, collections: List[str]) -> Dict:
+        """Transform single variant to Google Shopping item with all fixes applied"""
+        
+        # Extract metafields once
+        metafields_dict = self._extract_metafields(metafields.get('metafields', []))
+        
+        # Build item
         item = {}
         
-        # Priority: Metafields > Tag extraction > Static values
-        metafield_data = self._extract_metafields(metafields) if metafields else {}
-        
-        # Core fields
+        # Required fields
         item['g:id'] = str(variant['id'])
         item['g:title'] = self._build_title(product, variant)
-        item['g:description'] = self._clean_html(product.get('body_html', ''))
-        item['g:link'] = f"{self.base_url}/products/{product['handle']}?variant={variant['id']}"
+        item['g:description'] = self._get_description(product)
+        item['g:link'] = self._build_product_url(product, variant)
+        item['g:image_link'] = self._get_main_image(product, variant)
         
-        # Images - MULTIPLE IMAGES SUPPORT + Converse _INT logic
-        images = product.get('images', [])
-        brand = product.get('vendor', '').lower()
+        # Additional images
+        additional_images = self._get_additional_images(product, variant)
+        for i, img_url in enumerate(additional_images[:10], 1):
+            item[f'g:additional_image_link_{i}'] = img_url
         
-        if images:
-            # Special handling for Converse: prioritize _INT images
-            if 'converse' in brand:
-                # Find _INT image
-                int_image = None
-                other_images = []
-                
-                for img in images:
-                    img_src = img.get('src', '')
-                    if '_INT' in img_src or '_int' in img_src:
-                        int_image = img_src
-                    else:
-                        other_images.append(img_src)
-                
-                # Use _INT as main image if found
-                if int_image:
-                    item['g:image_link'] = int_image
-                    # Add other images as additional (up to 10 total)
-                    if other_images:
-                        item['g:additional_image_link'] = other_images[:10]
-                else:
-                    # Fallback if no _INT found
-                    item['g:image_link'] = images[0].get('src', '')
-                    additional_images = [img.get('src', '') for img in images[1:11]]
-                    if additional_images:
-                        item['g:additional_image_link'] = additional_images
-            else:
-                # Standard image handling for non-Converse products
-                item['g:image_link'] = images[0].get('src', '')
-                # Add up to 10 additional images
-                additional_images = [img.get('src', '') for img in images[1:11]]
-                if additional_images:
-                    item['g:additional_image_link'] = additional_images
+        # Price and availability
+        item['g:price'] = f"{variant['price']} EUR"
+        if variant.get('compare_at_price'):
+            item['g:sale_price'] = f"{variant['price']} EUR"
         
-        # Pricing - FIXED LOGIC
-        compare_at = variant.get('compare_at_price')
-        price = float(variant['price'])
-        
-        if compare_at and float(compare_at) > 0:
-            # Product is on sale
-            item['g:price'] = f"{float(compare_at):.2f} EUR"
-            item['g:sale_price'] = f"{price:.2f} EUR"
-        else:
-            # Regular price, no sale
-            item['g:price'] = f"{price:.2f} EUR"
-            # Omit sale_price field when not on sale (Google best practice)
-            
-        # Basic attributes
-        item['g:condition'] = self.static_values.get('condition', 'new')
-        item['g:availability'] = 'in stock' if variant.get('inventory_quantity', 0) > 0 else 'out of stock'
-        item['g:brand'] = product.get('vendor', 'Racoon Lab')
-        
-        # Fashion-specific fields
-        item['g:gender'] = self._get_gender(tags, metafield_data)
-        item['g:age_group'] = self.static_values.get('age_group', 'adult')
-        item['g:color'] = self._get_color(product, tags, metafield_data)
-        
-        # Grouping
-        item['g:item_group_id'] = str(product['id'])
+        item['g:availability'] = self._get_availability(variant)
         
         # Identifiers
-        # GTIN from barcode - omit field if empty (Google best practice)
-        barcode = variant.get('barcode', '')
-        if barcode and str(barcode).strip():
-            item['g:gtin'] = str(barcode).strip()
-        # If no barcode, omit g:gtin field entirely
+        item['g:condition'] = 'new'
+        item['g:brand'] = self._get_metafield_value(metafields_dict, 'brand') or product.get('vendor', 'Racoon Lab')
+        if variant.get('gtin'):
+            item['g:gtin'] = variant['gtin']
+        item['g:mpn'] = str(variant.get('sku', variant['id']))
         
-        item['g:mpn'] = variant.get('sku', '')
+        # Categorization - Use metafield or category mapping
+        item['g:google_product_category'] = self._get_google_category(product, tags, metafields_dict)
+        item['g:product_type'] = self._get_product_type(product, tags, metafields_dict)
         
-        # Category
-        item['g:google_product_category'] = self.static_values.get('google_product_category', '187')
-        item['g:product_type'] = product.get('product_type', '')
+        # Gender - FIXED: Use metafield, default 'female'
+        item['g:gender'] = self._get_metafield_value(metafields_dict, 'gender') or 'female'
+        
+        # Age group - FIXED: Use metafield, default 'adult'
+        item['g:age_group'] = self._get_metafield_value(metafields_dict, 'age_group') or 'adult'
+        
+        # Color - FIXED: Use metafield or OMIT
+        color = self._get_metafield_value(metafields_dict, 'color') or self._extract_color_from_tags(tags)
+        if color:
+            item['g:color'] = color
+        
+        # Material - FIXED: Use metafield or OMIT
+        material = self._get_metafield_value(metafields_dict, 'material')
+        if material:
+            item['g:material'] = material
+        
+        # Pattern - FIXED: Use DFW table
+        pattern = self._get_pattern_from_metafield_or_tags(metafields_dict, tags)
+        if pattern:
+            item['g:pattern'] = pattern
         
         # Size
-        item['g:size'] = variant.get('option1', '')
+        if variant.get('option1') and 'Taglia' not in variant['option1']:
+            item['g:size'] = variant['option1']
+        elif variant.get('option2'):
+            item['g:size'] = variant['option2']
         
-        # Material & Pattern
-        item['g:material'] = self._get_material(product, tags, metafield_data)
-        item['g:pattern'] = self._get_pattern(product, tags, metafield_data)
+        # Shipping
+        item['g:shipping_weight'] = f"{variant.get('weight', 1)} {variant.get('weight_unit', 'kg')}"
         
-        # Product Details (structured attributes)
-        product_details = self._get_product_details(tags)
-        if product_details:
-            item['g:product_detail'] = product_details
-        
-        # Custom Labels
+        # Custom Labels - FIXED: Use collections with smart split
         item['g:custom_label_0'] = self._get_custom_label_0(tags)
-        item['g:custom_label_1'] = self._get_custom_label_1(product, tags, variant)
-        item['g:custom_label_2'] = self.static_values.get('custom_label_2', '')
+        
+        # Split collections across custom_label_1 and custom_label_2
+        label_1, label_2 = self._split_collections_across_labels(collections)
+        item['g:custom_label_1'] = label_1
+        item['g:custom_label_2'] = label_2
+        
         item['g:custom_label_3'] = self.static_values.get('custom_label_3', '')
         item['g:custom_label_4'] = self.static_values.get('custom_label_4', '')
         
-        # Size system
-        item['g:size_system'] = self.static_values.get('size_system', 'IT')
-        
-        # Bundle (shoes are always sold as pairs)
-        item['g:is_bundle'] = 'TRUE'
-        
-        # Product Highlight
+        # Product highlights
         item['g:product_highlight'] = self._get_product_highlight(product, tags)
         
-        # TAGS (for internal tracking)
-        item['g:TAGS'] = ', '.join(tags)
+        # Reviews/Ratings - Extract from Stamped.io metafields
+        rating_data = self._extract_rating_from_metafields(metafields_dict)
+        if rating_data:
+            item['g:product_rating'] = rating_data['rating']
+            item['g:product_review_count'] = rating_data['count']
+        
+        # Additional details
+        item['g:item_group_id'] = str(product['id'])
         
         return item
     
-    def _extract_metafields(self, metafields: Dict) -> Dict:
-        """Extract metafields into a flat dictionary"""
-        data = {}
-        for mf in metafields.get('metafields', []):
+    def _split_collections_across_labels(self, collections: List[str], max_length: int = 500) -> tuple:
+        """
+        Split Shopify collections across custom_label_1 and custom_label_2
+        without cutting or repeating words
+        
+        Args:
+            collections: List of collection names from Shopify
+            max_length: Max characters per label (Google Shopping limit is 500)
+        
+        Returns:
+            (label_1, label_2) tuple
+        """
+        if not collections:
+            return ('', '')
+        
+        # Join all collections with delimiter
+        full_text = ', '.join(collections)
+        
+        # If everything fits in label_1, done
+        if len(full_text) <= max_length:
+            return (full_text, '')
+        
+        # Otherwise, split smartly without cutting words
+        label_1_parts = []
+        label_2_parts = []
+        current_length = 0
+        overflow = False
+        
+        for collection in collections:
+            # Calculate length with delimiter (", ")
+            # +2 for ", " delimiter, but not for the first item
+            item_length = len(collection) + (2 if current_length > 0 else 0)
+            
+            if not overflow and current_length + item_length <= max_length:
+                # Fits in label_1
+                label_1_parts.append(collection)
+                current_length += item_length
+            else:
+                # Goes to label_2
+                overflow = True
+                label_2_parts.append(collection)
+        
+        label_1 = ', '.join(label_1_parts)
+        label_2 = ', '.join(label_2_parts)
+        
+        # Trim label_2 if it exceeds max_length (rare case with very long collection names)
+        if len(label_2) > max_length:
+            # Find last complete collection that fits
+            label_2_trimmed = []
+            current = 0
+            for part in label_2_parts:
+                part_len = len(part) + (2 if current > 0 else 0)
+                if current + part_len <= max_length:
+                    label_2_trimmed.append(part)
+                    current += part_len
+                else:
+                    break
+            label_2 = ', '.join(label_2_trimmed)
+        
+        return (label_1, label_2)
+    
+    def _get_custom_label_0(self, tags: List[str]) -> str:
+        """Return ALL Shopify tags, comma separated - FIXED"""
+        return ', '.join(tags) if tags else ''
+    
+    def _get_pattern_from_metafield_or_tags(self, metafields_dict: Dict, tags: List[str]) -> str:
+        """Get pattern using DFW mapping table - FIXED"""
+        # Priority 1: Metafield
+        metafield_pattern = self._get_metafield_value(metafields_dict, 'pattern')
+        if metafield_pattern:
+            # Check if it's in Italian, translate it
+            pattern_lower = metafield_pattern.lower()
+            return self.pattern_mapping.get(pattern_lower, metafield_pattern)
+        
+        # Priority 2: Extract from tags using DFW mapping
+        for tag in tags:
+            tag_lower = tag.lower()
+            if tag_lower in self.pattern_mapping:
+                return self.pattern_mapping[tag_lower]
+        
+        # Priority 3: Omit field
+        return ''
+    
+    def _extract_metafields(self, metafields_list: List[Dict]) -> Dict:
+        """Convert metafields list to easy-access dict"""
+        result = {}
+        
+        for mf in metafields_list:
             namespace = mf.get('namespace', '')
             key = mf.get('key', '')
             value = mf.get('value', '')
             
             # Google Shopping metafields
             if namespace == 'mm-google-shopping':
-                data[key] = value
+                result[key] = value
             
-            # Stamped.io review metafields
-            elif namespace == 'stamped':
-                if key in ['reviews_average', 'reviews_count', 'rating', 'count']:
-                    data[key] = value
-            
-            # Other review app namespaces
-            elif namespace == 'reviews':
-                data[key] = value
-                
-        return data
+            # Reviews metafields (Stamped.io, Judge.me, Loox)
+            elif namespace in ['stamped', 'reviews', 'judgeme', 'loox']:
+                if key in ['reviews_average', 'rating', 'avg_rating']:
+                    result['reviews_average'] = value
+                elif key in ['reviews_count', 'count', 'review_count']:
+                    result['reviews_count'] = value
+        
+        return result
+    
+    def _get_metafield_value(self, metafields_dict: Dict, key: str) -> Optional[str]:
+        """Get metafield value by key"""
+        return metafields_dict.get(key)
     
     def _build_title(self, product: Dict, variant: Dict) -> str:
-        """Build optimized title"""
-        title = product.get('title', '')
-        size = variant.get('option1', '')
+        """Build product title - OPTIMIZED: Remove 'Taglia' word"""
+        base_title = product.get('title', 'Prodotto')
         
-        if size:
-            title = f"{title} - {size}"
-            
-        return title[:150]
+        # Add variant option if exists and is not 'Default Title'
+        if variant.get('option1') and variant['option1'] != 'Default Title':
+            option = variant['option1']
+            # Remove "Taglia" word (case insensitive)
+            option = re.sub(r'\bTaglia\b\s*', '', option, flags=re.IGNORECASE).strip()
+            if option:
+                return f"{base_title} - {option}"
+        
+        return base_title
     
-    def _clean_html(self, html: str) -> str:
-        """Remove HTML tags and clean text"""
-        text = re.sub(r'<[^>]+>', ' ', html)
-        text = re.sub(r'\s+', ' ', text)
-        text = text.replace('&quot;', '"').replace('&amp;', '&')
-        text = text.replace('&#39;', "'").replace('&lt;', '<').replace('&gt;', '>')
-        return text.strip()[:5000]
+    def _get_description(self, product: Dict) -> str:
+        """Get clean product description"""
+        desc = product.get('body_html', '')
+        # Remove HTML tags
+        clean_desc = self._clean_html(desc)
+        # Limit to 5000 chars (Google Shopping limit)
+        return clean_desc[:5000] if clean_desc else product.get('title', '')
     
-    def _get_gender(self, tags: List[str], metafield_data: Dict) -> str:
-        """Extract gender from metafields or tags"""
-        # Priority 1: Metafield
-        if 'gender' in metafield_data:
-            return metafield_data['gender'].lower()
-        
-        # Priority 2: Tags
-        gender_mapping = {
-            'donna': 'female',
-            'donne': 'female',
-            'female': 'female',
-            'uomo': 'male',
-            'uomini': 'male',
-            'male': 'male',
-            'unisex': 'unisex'
-        }
-        
-        for tag in tags:
-            tag_lower = tag.lower().strip()
-            if tag_lower in gender_mapping:
-                return gender_mapping[tag_lower]
-        
-        # Default: female (based on store data)
-        return 'female'
+    def _clean_html(self, html_text: str) -> str:
+        """Remove HTML tags and decode entities"""
+        if not html_text:
+            return ''
+        # Remove HTML tags
+        text = re.sub(r'<[^>]+>', '', html_text)
+        # Decode HTML entities
+        text = html.unescape(text)
+        # Remove extra whitespace
+        text = ' '.join(text.split())
+        return text.strip()
     
-    def _get_color(self, product: Dict, tags: List[str], metafield_data: Dict) -> str:
-        """Extract color from metafields, tags, or product title"""
-        # Priority 1: Metafield
-        if 'color' in metafield_data:
-            return metafield_data['color']
-        
-        # Priority 2: Color keywords in tags
-        color_keywords = {
-            'nero': 'Nero',
-            'bianco': 'Bianco',
-            'rosso': 'Rosso',
-            'blu': 'Blu',
-            'azzurro': 'Azzurro',
-            'verde': 'Verde',
-            'giallo': 'Giallo',
-            'arancione': 'Arancione',
-            'rosa': 'Rosa',
-            'viola': 'Viola',
-            'marrone': 'Marrone',
-            'grigio': 'Grigio',
-            'beige': 'Beige',
-            'bordeaux': 'Bordeaux',
-            'burgundy': 'Bordeaux',
-            'oro': 'Oro',
-            'argento': 'Argento'
-        }
-        
-        colors_found = []
-        for tag in tags:
-            tag_lower = tag.lower().strip()
-            for keyword, color_name in color_keywords.items():
-                if keyword in tag_lower:
-                    colors_found.append(color_name)
-        
-        # Priority 3: Extract from title
-        if not colors_found:
-            title_lower = product.get('title', '').lower()
-            for keyword, color_name in color_keywords.items():
-                if keyword in title_lower:
-                    colors_found.append(color_name)
-        
-        return '/'.join(colors_found[:3]) if colors_found else 'Multicolore'
+    def _build_product_url(self, product: Dict, variant: Dict) -> str:
+        """Build product URL with variant"""
+        handle = product.get('handle', '')
+        variant_id = variant.get('id', '')
+        return f"{self.base_url}/products/{handle}?variant={variant_id}"
     
-    def _get_material(self, product: Dict, tags: List[str], metafield_data: Dict) -> str:
-        """Extract material from metafields, tags, or description"""
-        # Priority 1: Metafield
-        if 'material' in metafield_data:
-            return metafield_data['material']
+    def _get_main_image(self, product: Dict, variant: Dict) -> str:
+        """Get main product image"""
+        # Try variant image first
+        if variant.get('image_id'):
+            for img in product.get('images', []):
+                if img.get('id') == variant['image_id']:
+                    return img.get('src', '')
         
-        # Priority 2: Tags
-        material_mapping = {
-            'pelle': 'Vera pelle',
-            'leather': 'Vera pelle',
-            'scamosciata': 'Pelle scamosciata',
-            'suede': 'Pelle scamosciata',
-            'tela': 'Tela',
-            'canvas': 'Tela',
-            'tessuto': 'Tessuto',
-            'sintetico': 'Materiale sintetico',
-            'denim': 'Denim',
-            'jeans': 'Denim'
-        }
-        
-        for tag in tags:
-            tag_lower = tag.lower().strip()
-            for keyword, material in material_mapping.items():
-                if keyword in tag_lower:
-                    return material
-        
-        # Priority 3: Check description
-        description = product.get('body_html', '').lower()
-        for keyword, material in material_mapping.items():
-            if keyword in description:
-                return material
-        
-        return 'Vera pelle'
-    
-    def _get_pattern(self, product: Dict, tags: List[str], metafield_data: Dict) -> str:
-        """Extract pattern from metafields, tags, title or description"""
-        # Priority 1: Metafield
-        if 'pattern' in metafield_data:
-            return metafield_data['pattern']
-        
-        # Priority 2: Tags
-        pattern_keywords = {
-            'mimetico': 'Mimetico',
-            'camouflage': 'Mimetico',
-            'floreale': 'Floreale',
-            'fiori': 'Floreale',
-            'righe': 'A righe',
-            'strisce': 'A righe',
-            'pois': 'A pois',
-            'animalier': 'Animalier',
-            'leopardato': 'Leopardato',
-            'zebrato': 'Zebrato',
-            'geometrico': 'Geometrico',
-            'tinta unita': 'Tinta unita',
-            'solid': 'Tinta unita'
-        }
-        
-        for tag in tags:
-            tag_lower = tag.lower().strip()
-            for keyword, pattern in pattern_keywords.items():
-                if keyword in tag_lower:
-                    return pattern
-        
-        # Priority 3: Check title and description
-        text = (product.get('title', '') + ' ' + product.get('body_html', '')).lower()
-        for keyword, pattern in pattern_keywords.items():
-            if keyword in text:
-                return pattern
+        # Fallback to first product image
+        images = product.get('images', [])
+        if images:
+            return images[0].get('src', '')
         
         return ''
     
-    def _get_product_details(self, tags: List[str]) -> List[Dict[str, str]]:
-        """Extract structured product details from tags"""
-        details = []
+    def _get_additional_images(self, product: Dict, variant: Dict) -> List[str]:
+        """Get additional product images (max 10)"""
+        images = []
+        main_image_id = variant.get('image_id') or (product.get('images', [{}])[0].get('id') if product.get('images') else None)
         
-        detail_mapping = {
-            'suola vintage': {'attribute_name': 'Tipo di Suola', 'attribute_value': 'Vintage'},
-            'suola bianca': {'attribute_name': 'Tipo di Suola', 'attribute_value': 'Bianca'},
-            'suola nera': {'attribute_name': 'Tipo di Suola', 'attribute_value': 'Nera'},
-            'platform': {'attribute_name': 'Tipo di Suola', 'attribute_value': 'Platform'},
-            'effetto vintage': {'attribute_name': 'Stile', 'attribute_value': 'Effetto Vintage'},
-            'memory foam': {'attribute_name': 'Comfort', 'attribute_value': 'Memory Foam'},
-            'impermeabile': {'attribute_name': 'Caratteristiche', 'attribute_value': 'Impermeabile'},
-            'traspirante': {'attribute_name': 'Caratteristiche', 'attribute_value': 'Traspirante'}
-        }
+        for img in product.get('images', []):
+            if img.get('id') != main_image_id:
+                images.append(img.get('src', ''))
+                if len(images) >= 10:
+                    break
         
-        for tag in tags:
-            tag_lower = tag.lower().strip()
-            if tag_lower in detail_mapping:
-                details.append(detail_mapping[tag_lower])
-        
-        return details[:3]  # Max 3 details
+        return images
     
-    def _get_custom_label_0(self, tags: List[str]) -> str:
-        """Build custom_label_0 from categories/collections"""
-        labels = []
+    def _get_availability(self, variant: Dict) -> str:
+        """Determine product availability"""
+        if not variant.get('available', True):
+            return 'out of stock'
         
-        # Brand categories
-        brand_tags = ['Nike', 'Adidas', 'nike', 'adidas']
-        for tag in tags:
-            if tag in brand_tags:
-                labels.append(tag.upper())
+        inventory_quantity = variant.get('inventory_quantity', 0)
+        inventory_policy = variant.get('inventory_policy', 'deny')
         
-        # Product lines
-        product_lines = {
-            'Air Force 1': 'Nike Air Force 1',
-            'Air Force': 'Nike Air Force 1',
-            'Gazelle': 'Adidas Gazelle',
-            'Campus': 'Adidas Campus',
-            'Samba': 'Adidas Samba'
-        }
+        if inventory_policy == 'continue':
+            return 'in stock'
         
-        for tag in tags:
-            if tag in product_lines:
-                labels.append(product_lines[tag])
+        if inventory_quantity and inventory_quantity > 0:
+            return 'in stock'
         
-        # Special collections
-        collection_keywords = [
-            'Sneakers Personalizzate',
-            'Nike Personalizzate',
-            'Adidas Personalizzate',
-            'Denim',
-            'Effetto Vintage'
+        return 'out of stock'
+    
+    def _get_google_category(self, product: Dict, tags: List[str], metafields_dict: Dict) -> str:
+        """Get Google product category"""
+        # Priority 1: Metafield
+        metafield_cat = self._get_metafield_value(metafields_dict, 'google_product_category')
+        if metafield_cat:
+            return metafield_cat
+        
+        # Priority 2: Category mapping from config
+        product_type = product.get('product_type', '').lower()
+        for category_key, category_id in self.category_mapping.items():
+            if category_key.lower() in product_type:
+                return category_id
+        
+        # Priority 3: Static value
+        return self.static_values.get('google_product_category', '1856')
+    
+    def _get_product_type(self, product: Dict, tags: List[str], metafields_dict: Dict) -> str:
+        """Get product type"""
+        # Priority 1: Metafield
+        metafield_type = self._get_metafield_value(metafields_dict, 'product_type')
+        if metafield_type:
+            return metafield_type
+        
+        # Priority 2: Shopify product_type
+        return product.get('product_type', 'Sneakers')
+    
+    def _extract_color_from_tags(self, tags: List[str]) -> str:
+        """Extract color from tags"""
+        color_keywords = [
+            'Nero', 'Bianco', 'Rosso', 'Blu', 'Verde', 'Giallo', 
+            'Rosa', 'Viola', 'Arancione', 'Grigio', 'Marrone', 
+            'Beige', 'Oro', 'Argento', 'Multicolore'
         ]
         
         for tag in tags:
-            for keyword in collection_keywords:
-                if keyword.lower() in tag.lower():
-                    labels.append(tag)
+            for color in color_keywords:
+                if color.lower() in tag.lower():
+                    return color
         
-        # Seasons
-        seasons = ['Autunno', 'Inverno', 'Primavera', 'Estate']
-        for tag in tags:
-            if tag in seasons:
-                labels.append(tag)
-        
-        # Remove duplicates while preserving order
-        seen = set()
-        unique_labels = []
-        for label in labels:
-            label_upper = label.upper()
-            if label_upper not in seen:
-                seen.add(label_upper)
-                unique_labels.append(label)
-        
-        return ', '.join(unique_labels[:10])
-    
-    def _get_custom_label_1(self, product: Dict, tags: List[str], variant: Dict) -> str:
-        """Build enhanced custom_label_1 with 8 marketing elements"""
-        labels = []
-        price = float(variant.get('price', 0))
-        
-        # 1. Edizione Limitata (sempre)
-        labels.append("Adidas Personalizzate a mano in Edizione Limitata")
-        
-        # 2. Seasonal tags
-        seasonal_tags = ['Autunno', 'Inverno', 'Primavera', 'Estate']
-        for tag in tags:
-            if tag in seasonal_tags:
-                labels.append(tag)
-        
-        # 3. Price-based gift category
-        if price >= 170:
-            labels.append("Idee regalo oltre i 170€")
-        elif price >= 120:
-            labels.append("Idee regalo tra 120€ e 170€")
-        
-        # 4. New Collection
-        if 'NEW' in tags or 'Nuova Collezione' in tags:
-            labels.append("NUOVA COLLEZIONE 2025")
-        
-        # 5. Special materials/features
-        special_features = {
-            'Denim': 'Scarpe in Jeans Denim',
-            'Jeans': 'Scarpe in Jeans Denim',
-            'Effetto Vintage': 'Stile Vintage',
-            'Platform': 'Suola Platform Alta'
-        }
-        
-        for tag in tags:
-            for keyword, label in special_features.items():
-                if keyword in tag:
-                    labels.append(label)
-        
-        # 6. Sales
-        if variant.get('compare_at_price'):
-            labels.append("Sneaker in super saldo")
-            labels.append("SALDI")
-        
-        # 7. Trending
-        if any(word in tags for word in ['Trending', 'Top', 'Più vendute']):
-            labels.append("Scarpe personalizzate più di tendenza e alla moda")
-        
-        # 8. Best sellers indicator
-        if 'Best Seller' in tags or 'Più vendute' in tags:
-            labels.append("Sneakers personalizzate più vendute")
-        
-        # Remove duplicates while preserving order
-        seen = set()
-        unique_labels = []
-        for label in labels:
-            if label not in seen:
-                seen.add(label)
-                unique_labels.append(label)
-        
-        return ', '.join(unique_labels[:8])
+        return ''
     
     def _get_product_highlight(self, product: Dict, tags: List[str]) -> str:
-        """Extract key product highlights from title and description"""
-        title = product.get('title', '')
-        description = self._clean_html(product.get('body_html', ''))
+        """Extract key product highlights"""
+        highlights = []
         
-        # Extract first sentence or up to 150 chars from description
-        first_part = description.split('.')[0] if '.' in description else description
-        highlight = f"{title} {first_part[:150]}"
+        # Add from tags
+        highlight_keywords = ['Personalizzate', 'Edizione Limitata', 'Made in Italy', 'Artigianale']
+        for tag in tags:
+            for keyword in highlight_keywords:
+                if keyword.lower() in tag.lower():
+                    highlights.append(tag)
+                    break
         
-        return highlight.strip()[:500]
+        # Limit to first 3
+        return ', '.join(highlights[:3]) if highlights else ''
     
-    def _calculate_shipping(self, price: float) -> float:
-        """Calculate dynamic shipping cost based on price tiers (Italy)"""
-        if price >= 89:
-            return 0.00  # Free shipping
-        elif price > 30:
-            return 10.00
-        else:
-            return 6.00
-    
-    def _get_product_rating(self, metafield_data: Dict) -> Optional[Dict[str, str]]:
-        """
-        Extract product rating and review count from metafields
+    def _extract_rating_from_metafields(self, metafields_dict: Dict) -> Optional[Dict]:
+        """Extract review rating and count from metafields"""
+        rating = metafields_dict.get('reviews_average')
+        count = metafields_dict.get('reviews_count')
         
-        Supported review apps:
-        - Stamped.io: stamped.reviews_average, stamped.reviews_count
-        - Judge.me: judgeme.rating, judgeme.review_count
-        - Loox: loox.avg_rating, loox.num_reviews
-        - Generic: reviews.rating, reviews.count
-        """
-        rating = None
-        count = None
-        
-        # Check multiple possible metafield keys (order matters - most specific first)
-        rating_keys = [
-            'reviews_average',    # Stamped.io
-            'rating',             # Generic/Judge.me
-            'reviews_rating',     # Generic
-            'avg_rating',         # Loox
-            'product_rating',     # Custom
-            'average_rating',     # Alternative
-        ]
-        
-        count_keys = [
-            'reviews_count',      # Stamped.io
-            'count',              # Generic
-            'review_count',       # Judge.me
-            'num_reviews',        # Loox
-            'number_of_reviews',  # Alternative
-            'total_reviews',      # Alternative
-        ]
-        
-        for key in rating_keys:
-            if key in metafield_data:
-                try:
-                    value_str = str(metafield_data[key])
-                    rating_value = float(value_str)
-                    
-                    # Validate rating is in correct range
-                    if 0.0 <= rating_value <= 5.0:
-                        rating = f"{rating_value:.1f}"
-                        break
-                except (ValueError, TypeError) as e:
-                    continue
-        
-        for key in count_keys:
-            if key in metafield_data:
-                try:
-                    value_str = str(metafield_data[key])
-                    # Handle possible string numbers
-                    count_value = int(float(value_str))
-                    
-                    # Only show if we have actual reviews
-                    if count_value > 0:
-                        count = str(count_value)
-                        break
-                except (ValueError, TypeError) as e:
-                    continue
-        
-        # Return rating data only if both values are present and valid
         if rating and count:
-            return {'rating': rating, 'count': count}
+            try:
+                return {
+                    'rating': str(float(rating)),
+                    'count': str(int(count))
+                }
+            except (ValueError, TypeError):
+                pass
         
         return None
+    
+    def _has_available_stock(self, product: Dict) -> bool:
+        """Check if product has at least one variant with available stock"""
+        for variant in product.get('variants', []):
+            if variant.get('available', False):
+                return True
+            
+            # Check inventory
+            if variant.get('inventory_policy') == 'continue':
+                return True
+            
+            if variant.get('inventory_quantity', 0) > 0:
+                return True
+        
+        return False
+    
+    def _should_exclude_variant(self, variant: Dict, product: Dict) -> bool:
+        """Check if variant should be excluded (contains 'personalizzazione')"""
+        title = product.get('title', '').lower()
+        variant_title = variant.get('title', '').lower()
+        option1 = (variant.get('option1') or '').lower()
+        
+        exclude_keywords = ['personalizzazione', 'customization']
+        
+        for keyword in exclude_keywords:
+            if keyword in title or keyword in variant_title or keyword in option1:
+                return True
+        
+        return False

@@ -183,6 +183,69 @@ class ShopifyClient:
             logger.error(f"❌ Error fetching metafields for product {product_id}: {e}")
             return {'metafields': []}
     
+    def get_all_collections(self) -> Dict[int, str]:
+        """
+        Get all collections (custom + smart) and return mapping: collection_id -> title
+        This is called ONCE at the beginning to avoid repeated API calls
+        """
+        collections_map = {}
+        
+        try:
+            # Fetch custom collections
+            logger.info("📚 Fetching custom collections...")
+            endpoint = "/custom_collections.json"
+            params = {'limit': 250, 'fields': 'id,title'}
+            
+            response = self._make_request('GET', endpoint, params=params)
+            
+            if response.status_code == 200:
+                custom_collections = response.json().get('custom_collections', [])
+                for col in custom_collections:
+                    collections_map[col['id']] = col['title']
+                logger.info(f"  ✅ Retrieved {len(custom_collections)} custom collections")
+            
+            # Fetch smart collections
+            logger.info("📚 Fetching smart collections...")
+            endpoint = "/smart_collections.json"
+            
+            response = self._make_request('GET', endpoint, params=params)
+            
+            if response.status_code == 200:
+                smart_collections = response.json().get('smart_collections', [])
+                for col in smart_collections:
+                    collections_map[col['id']] = col['title']
+                logger.info(f"  ✅ Retrieved {len(smart_collections)} smart collections")
+            
+            logger.info(f"✅ Total collections mapped: {len(collections_map)}")
+            return collections_map
+            
+        except Exception as e:
+            logger.error(f"❌ Error fetching collections: {e}")
+            return {}
+    
+    def get_product_collection_ids(self, product_id: int) -> List[int]:
+        """
+        Get collection IDs for a specific product
+        Returns list of collection_ids (to be mapped with get_all_collections)
+        """
+        endpoint = f"/collects.json"
+        params = {'product_id': product_id, 'limit': 250}
+        
+        try:
+            response = self._make_request('GET', endpoint, params=params)
+            
+            if response.status_code == 200:
+                collects = response.json().get('collects', [])
+                collection_ids = [collect['collection_id'] for collect in collects]
+                return collection_ids
+            else:
+                logger.warning(f"⚠️ Could not fetch collections for product {product_id}: {response.status_code}")
+                return []
+                
+        except Exception as e:
+            logger.error(f"❌ Error fetching collections for product {product_id}: {e}")
+            return []
+    
     def get_products_with_metafields(self, limit: int = 250, fields: Optional[str] = None, 
                                     max_products: Optional[int] = None) -> List[Dict]:
         """
