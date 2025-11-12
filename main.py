@@ -62,6 +62,11 @@ class FeedGeneratorService:
             if not self.client.test_connection():
                 raise Exception("Failed to connect to Shopify API")
             
+            # Fetch ALL collections ONCE (for mapping later)
+            logger.info("Fetching all collections (custom + smart)...")
+            collections_map = self.client.get_all_collections()
+            logger.info(f"✅ Collections map ready with {len(collections_map)} collections")
+            
             # Fetch products WITHOUT metafields (saves memory)
             logger.info("Fetching products (without metafields)...")
             products = self.client.get_products(
@@ -95,6 +100,13 @@ class FeedGeneratorService:
                 metafields_data = self.client.get_product_metafields(product['id'])
                 metafields = {'metafields': metafields_data.get('metafields', [])}
                 
+                # Fetch collection IDs for this product and map to names
+                collection_ids = self.client.get_product_collection_ids(product['id'])
+                collection_names = [collections_map.get(cid, '') for cid in collection_ids if cid in collections_map]
+                
+                # Add collections to product data (for transformer)
+                product['collections'] = collection_names
+                
                 # Check if has reviews
                 has_reviews = any(
                     mf.get('namespace') in ['stamped', 'reviews', 'judgeme', 'loox']
@@ -115,6 +127,8 @@ class FeedGeneratorService:
                 # Clear this product and metafields from memory
                 del metafields_data
                 del metafields
+                del collection_ids
+                del collection_names
                 del items
                 
                 # Force garbage collection every 50 products
