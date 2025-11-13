@@ -117,10 +117,26 @@ class ProductTransformer:
             collections = []
         
         for variant in product.get('variants', []):
+            # FILTRO: Skip variants with "personalizzazione" in variant options
+            variant_title = self._get_variant_title(variant)
+            if 'personalizzazione' in variant_title.lower():
+                continue  # Skip this variant
+            
             item = self.transform_variant(product, variant, tags, metafields, collections)
             items.append(item)
             
         return items
+    
+    def _get_variant_title(self, variant: Dict) -> str:
+        """Get variant title from options"""
+        options = []
+        if variant.get('option1') and variant.get('option1') != 'Default Title':
+            options.append(variant.get('option1'))
+        if variant.get('option2'):
+            options.append(variant.get('option2'))
+        if variant.get('option3'):
+            options.append(variant.get('option3'))
+        return ' '.join(options)
     
     def transform_variant(self, product: Dict, variant: Dict, tags: List[str], 
                          metafields: Dict, collections: List[str]) -> Dict:
