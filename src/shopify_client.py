@@ -181,34 +181,29 @@ class ShopifyClient:
     
     def get_product_collections(self, product_id: str) -> List[str]:
         """
-        Get collection titles for a product using correct Shopify API
+        Get collection titles for a product
         
         Returns:
             List of collection titles (e.g., ["Summer Collection", "Best Sellers"])
         """
-        titles = []
-        
-        # Get custom collections
         try:
-            data = self._make_request('custom_collections.json', {'product_id': product_id})
-            for collection in data.get('custom_collections', []):
+            # Get custom collections
+        data_custom = self._make_request('custom_collections.json', {'product_id': product_id})
+        data_smart = self._make_request('smart_collections.json', {'product_id': product_id})
+            collections_data = data_custom.get('custom_collections', []) + data_smart.get('smart_collections', [])
+            
+            # Extract titles
+            titles = []
+            for collection in collections_data:
                 title = collection.get('title', '')
                 if title:
                     titles.append(title)
+            
+            return titles
+            
         except Exception as e:
-            logger.warning(f"Error fetching custom collections for product {product_id}: {e}")
-        
-        # Get smart collections
-        try:
-            data = self._make_request('smart_collections.json', {'product_id': product_id})
-            for collection in data.get('smart_collections', []):
-                title = collection.get('title', '')
-                if title:
-                    titles.append(title)
-        except Exception as e:
-            logger.warning(f"Error fetching smart collections for product {product_id}: {e}")
-        
-        return titles
+            logger.error(f"Error fetching collections for product {product_id}: {e}")
+            return []
     
     def get_product_with_metafields_and_collections(self, product: Dict) -> Dict:
         """
