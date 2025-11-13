@@ -98,14 +98,23 @@ class ProductTransformer:
             'fumetti': 'comic',
         }
     
-    def transform_product(self, product: Dict, metafields: Dict, collections: List[str]) -> List[Dict]:
+    def transform_product(self, product: Dict, metafields: Dict, collections: Optional[List[str]] = None) -> List[Dict]:
         """
         Transform ONE Shopify product into Google Shopping items (one per variant)
         
         FILTRO UNICO: status='active' (già applicato nella API call di Shopify)
+        
+        Args:
+            product: Shopify product dict
+            metafields: Product metafields dict
+            collections: Optional list of collection titles (default: empty list)
         """
         items = []
         tags = product.get('tags', '').split(', ') if isinstance(product.get('tags'), str) else product.get('tags', [])
+        
+        # Default to empty list if not provided (backward compatibility)
+        if collections is None:
+            collections = []
         
         for variant in product.get('variants', []):
             item = self.transform_variant(product, variant, tags, metafields, collections)
