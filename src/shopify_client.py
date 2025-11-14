@@ -116,7 +116,16 @@ class ShopifyClient:
                 if page_info:
                     params['page_info'] = page_info
                 
-                data = self._make_request('products.json', params)
+                # Make request directly to access headers
+                url = f"{self.base_url}/products.json"
+                self._rate_limit()
+                response = requests.get(url, headers=self.headers, params=params, timeout=30)
+                
+                if response.status_code != 200:
+                    logger.error(f"API error {response.status_code}: {response.text}")
+                    break
+                
+                data = response.json()
                 products = data.get('products', [])
                 
                 if not products:
@@ -125,8 +134,8 @@ class ShopifyClient:
                 all_products.extend(products)
                 logger.info(f"  Page {page}: Retrieved {len(products)} products (total: {len(all_products)})")
                 
-                # Check for next page
-                link_header = data.get('link', '')
+                # Check for next page in HTTP headers
+                link_header = response.headers.get('Link', '')
                 if 'rel="next"' in link_header:
                     # Extract page_info from link header
                     import re
