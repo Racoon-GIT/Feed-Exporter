@@ -35,8 +35,11 @@ class ProductTransformer:
         # FILTER 3: Exclude specific product types (case-insensitive)
         product_type = product.get('product_type', '').lower()
         
+        # Use word boundary matching for exact word matches (not substrings)
         for excluded in self.excluded_product_types:
-            if excluded in product_type:
+            # \b ensures we match whole words only
+            # Example: 'calzi' matches "Calzini" but NOT "Calzature"
+            if re.search(r'\b' + re.escape(excluded) + r'\b', product_type, re.IGNORECASE):
                 return True
         
         return False
