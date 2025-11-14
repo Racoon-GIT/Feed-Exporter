@@ -59,7 +59,7 @@ class ShopifyClient:
                 if response.status_code == 200:
                     return response.json()
                 elif response.status_code == 429:  # Rate limit
-                    retry_after = int(response.headers.get('Retry-After', self.retry_delay))
+                    retry_after = int(float(response.headers.get('Retry-After', self.retry_delay)))
                     logger.warning(f"Rate limited, waiting {retry_after}s")
                     time.sleep(retry_after)
                     continue
