@@ -1,5 +1,6 @@
 """
 Product Transformer - Converts Shopify products to Google Shopping format
+Version: 3.0 - With Star Rating & Multiple Images
 """
 
 import re
@@ -16,8 +17,8 @@ class ProductTransformer:
         self.static_values = config_loader.static_values
         
         # Excluded product type keywords (case-insensitive)
-        self.excluded_product_types = ['buon', 'gift', 'pacco', 'berretti', 'shirt', 'felp', 'stringhe', 'outlet']
-        """Check if product should be excluded based on various criteria"""
+        self.excluded_product_types = ['buon', 'gift', 'pacco', 'berretti', 'calz', 'shirt', 'felp', 'stringhe', 'outlet']
+    
     def _should_exclude_product(self, product: Dict) -> bool:
         """Check if product should be excluded based on various criteria"""
         
