@@ -64,90 +64,118 @@ class StreamingXMLGenerator:
         Add a single item to the feed (writes immediately to file)
         
         Args:
-            item_data: Dictionary with Google Shopping fields
+            item_data: Dictionary with Google Shopping fields (with or without g: prefix)
         """
         if not self.file:
             raise RuntimeError("Feed not started. Call start_feed() first.")
         
+        # Helper to get value with or without g: prefix
+        def get_field(key):
+            return item_data.get(f'g:{key}') or item_data.get(key)
+        
         self.file.write('    <item>\n')
         
         # Required fields
-        self._write_field('g:id', item_data.get('id'))
-        self._write_field('g:title', item_data.get('title'))
-        self._write_field('g:description', item_data.get('description'))
-        self._write_field('g:link', item_data.get('link'))
-        self._write_field('g:image_link', item_data.get('image_link'))
+        self._write_field('g:id', get_field('id'))
+        self._write_field('g:title', get_field('title'))
+        self._write_field('g:description', get_field('description'))
+        self._write_field('g:link', get_field('link'))
+        self._write_field('g:image_link', get_field('image_link'))
         
         # Additional images
-        if item_data.get('additional_image_link'):
-            self._write_field('g:additional_image_link', item_data.get('additional_image_link'))
+        additional_images = get_field('additional_image_link')
+        if additional_images:
+            # Handle both string (comma-separated) and list formats
+            if isinstance(additional_images, list):
+                self._write_field('g:additional_image_link', ','.join(additional_images))
+            else:
+                self._write_field('g:additional_image_link', additional_images)
         
         # Price and availability
-        self._write_field('g:availability', item_data.get('availability'))
-        self._write_field('g:price', item_data.get('price'))
+        self._write_field('g:availability', get_field('availability'))
+        self._write_field('g:price', get_field('price'))
+        
+        # Sale price (optional)
+        if get_field('sale_price'):
+            self._write_field('g:sale_price', get_field('sale_price'))
         
         # Product identifiers
-        self._write_field('g:brand', item_data.get('brand'))
-        self._write_field('g:condition', item_data.get('condition', 'new'))
+        self._write_field('g:brand', get_field('brand'))
+        self._write_field('g:condition', get_field('condition') or 'new')
         
-        if item_data.get('gtin'):
-            self._write_field('g:gtin', item_data.get('gtin'))
+        if get_field('gtin'):
+            self._write_field('g:gtin', get_field('gtin'))
         
-        if item_data.get('mpn'):
-            self._write_field('g:mpn', item_data.get('mpn'))
+        if get_field('mpn'):
+            self._write_field('g:mpn', get_field('mpn'))
         
         # Categories
-        self._write_field('g:google_product_category', item_data.get('google_product_category'))
+        self._write_field('g:google_product_category', get_field('google_product_category'))
         
-        if item_data.get('product_type'):
-            self._write_field('g:product_type', item_data.get('product_type'))
+        if get_field('product_type'):
+            self._write_field('g:product_type', get_field('product_type'))
         
         # Product attributes
-        self._write_field('g:gender', item_data.get('gender'))
-        self._write_field('g:age_group', item_data.get('age_group'))
+        self._write_field('g:gender', get_field('gender'))
+        self._write_field('g:age_group', get_field('age_group'))
         
-        if item_data.get('color'):
-            self._write_field('g:color', item_data.get('color'))
+        if get_field('color'):
+            self._write_field('g:color', get_field('color'))
         
-        if item_data.get('size'):
-            self._write_field('g:size', item_data.get('size'))
+        if get_field('size'):
+            self._write_field('g:size', get_field('size'))
         
-        if item_data.get('material'):
-            self._write_field('g:material', item_data.get('material'))
+        if get_field('material'):
+            self._write_field('g:material', get_field('material'))
         
-        if item_data.get('pattern'):
-            self._write_field('g:pattern', item_data.get('pattern'))
+        if get_field('pattern'):
+            self._write_field('g:pattern', get_field('pattern'))
         
-        if item_data.get('product_detail'):
-            self._write_field('g:product_detail', item_data.get('product_detail'))
+        # Product detail - handle nested structure
+        product_detail = get_field('product_detail')
+        if product_detail:
+            self._write_field('g:product_detail', product_detail)
         
         # Item group ID (for variants)
-        if item_data.get('item_group_id'):
-            self._write_field('g:item_group_id', item_data.get('item_group_id'))
+        if get_field('item_group_id'):
+            self._write_field('g:item_group_id', get_field('item_group_id'))
         
         # Shipping
-        if item_data.get('shipping'):
-            self._write_field('g:shipping', item_data.get('shipping'))
+        if get_field('shipping'):
+            self._write_field('g:shipping', get_field('shipping'))
         
         # Star rating
-        if item_data.get('product_rating'):
-            self._write_field('g:product_rating', item_data.get('product_rating'))
+        if get_field('product_rating'):
+            self._write_field('g:product_rating', get_field('product_rating'))
         
         # Custom labels
-        if item_data.get('custom_label_0'):
-            self._write_field('g:custom_label_0', item_data.get('custom_label_0'))
+        if get_field('custom_label_0'):
+            self._write_field('g:custom_label_0', get_field('custom_label_0'))
         
-        if item_data.get('custom_label_1'):
-            self._write_field('g:custom_label_1', item_data.get('custom_label_1'))
+        if get_field('custom_label_1'):
+            self._write_field('g:custom_label_1', get_field('custom_label_1'))
         
-        if item_data.get('custom_label_2'):
-            self._write_field('g:custom_label_2', item_data.get('custom_label_2'))
+        if get_field('custom_label_2'):
+            self._write_field('g:custom_label_2', get_field('custom_label_2'))
         
-        if item_data.get('custom_label_3'):
-            self._write_field('g:custom_label_3', item_data.get('custom_label_3'))
+        if get_field('custom_label_3'):
+            self._write_field('g:custom_label_3', get_field('custom_label_3'))
         
-        if item_data.get('custom_label_4'):
-            self._write_field('g:custom_label_4', item_data.get('custom_label_4'))
+        if get_field('custom_label_4'):
+            self._write_field('g:custom_label_4', get_field('custom_label_4'))
+        
+        # Additional fields from transformer_n
+        if get_field('size_system'):
+            self._write_field('g:size_system', get_field('size_system'))
+        
+        if get_field('is_bundle'):
+            self._write_field('g:is_bundle', get_field('is_bundle'))
+        
+        if get_field('product_highlight'):
+            self._write_field('g:product_highlight', get_field('product_highlight'))
+        
+        if get_field('TAGS'):
+            self._write_field('g:TAGS', get_field('TAGS'))
         
         self.file.write('    </item>\n')
         self.item_count += 1
