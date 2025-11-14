@@ -108,12 +108,15 @@ class ShopifyClient:
         while True:
             try:
                 params = {
-                    'status': 'active',  # ✅ CRITICAL: Request status field
                     'limit': limit,
                     'fields': 'id,title,handle,vendor,product_type,tags,body_html,variants,images,image,status'
                 }
                 
-                if page_info:
+                # Only add status filter on first page
+                # When using page_info, Shopify doesn't allow other filters
+                if not page_info:
+                    params['status'] = 'active'
+                else:
                     params['page_info'] = page_info
                 
                 # Make request directly to access headers
@@ -131,8 +134,11 @@ class ShopifyClient:
                 if not products:
                     break
                 
-                all_products.extend(products)
-                logger.info(f"  Page {page}: Retrieved {len(products)} products (total: {len(all_products)})")
+                # Filter active products (can't use status param with page_info in API)
+                active_products = [p for p in products if p.get('status', '').lower() == 'active']
+                
+                all_products.extend(active_products)
+                logger.info(f"  Page {page}: Retrieved {len(products)} products ({len(active_products)} active, total: {len(all_products)})")
                 
                 # Check for next page in HTTP headers
                 link_header = response.headers.get('Link', '')
