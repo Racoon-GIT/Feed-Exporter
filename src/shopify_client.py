@@ -28,24 +28,72 @@ class ShopifyClient:
             'Content-Type': 'application/json'
         }
         
-        # Rate limiting (Shopify: 2 requests/second for standard plans)
-        self.min_request_interval = 1.9  # 900ms between requests (conservative)
+        # Rate limiting intelligente basato su crediti Shopify
+        self.min_request_interval = 0.5  # Base interval (veloce quando hai crediti)
         self.last_request_time = 0
+        self.available_credits = 40  # Shopify bucket size
+        self.max_credits = 40
         
         # Retry settings
         self.max_retries = 3
         self.retry_delay = 5  # seconds
     
     def _rate_limit(self):
-        """Enforce rate limiting between requests"""
+        """
+        Rate limiting intelligente basato su crediti Shopify
+        
+        Logica:
+        - Crediti >= 30: veloce (0.5s)
+        - Crediti 20-29: normale (1.0s)
+        - Crediti 10-19: cauto (1.5s)
+        - Crediti < 10: lento (2.5s) per ricaricare
+        """
         current_time = time.time()
         time_since_last = current_time - self.last_request_time
         
-        if time_since_last < self.min_request_interval:
-            sleep_time = self.min_request_interval - time_since_last
+        # Calcola wait time in base ai crediti disponibili
+        if self.available_credits >= 30:
+            wait_time = 0.5  # Veloce
+        elif self.available_credits >= 20:
+            wait_time = 1.0  # Normale
+        elif self.available_credits >= 10:
+            wait_time = 1.5  # Cauto
+        else:
+            wait_time = 2.5  # Lento - lascia ricaricare il bucket
+            logger.info(f"⚠️ Pochi crediti ({self.available_credits}/{self.max_credits}), rallento...")
+        
+        if time_since_last < wait_time:
+            sleep_time = wait_time - time_since_last
             time.sleep(sleep_time)
         
         self.last_request_time = time.time()
+    
+    def _update_credits_from_header(self, response_headers: Dict):
+        """
+        Aggiorna i crediti disponibili leggendo l'header Shopify
+        
+        Header format: "X-Shopify-Shop-Api-Call-Limit: 32/40"
+        Significa: 32 crediti usati su 40 disponibili → 8 crediti rimasti
+        """
+        call_limit = response_headers.get('X-Shopify-Shop-Api-Call-Limit', '')
+        
+        if call_limit:
+            try:
+                # Parse "32/40" format
+                used, total = call_limit.split('/')
+                used = int(used)
+                total = int(total)
+                
+                # Calcola crediti disponibili
+                self.available_credits = total - used
+                self.max_credits = total
+                
+                # Log solo quando i crediti sono bassi
+                if self.available_credits < 15:
+                    logger.debug(f"📊 Crediti Shopify: {self.available_credits}/{total} disponibili")
+                    
+            except (ValueError, AttributeError) as e:
+                logger.debug(f"Could not parse credit header '{call_limit}': {e}")
     
     def _make_request(self, endpoint: str, params: Optional[Dict] = None) -> Dict:
         """Make API request with rate limiting and retry logic"""
@@ -56,11 +104,14 @@ class ShopifyClient:
                 self._rate_limit()
                 response = requests.get(url, headers=self.headers, params=params, timeout=30)
                 
+                # Aggiorna crediti dagli header (sempre, anche in caso di errore)
+                self._update_credits_from_header(response.headers)
+                
                 if response.status_code == 200:
                     return response.json()
                 elif response.status_code == 429:  # Rate limit
                     retry_after = int(float(response.headers.get('Retry-After', self.retry_delay)))
-                    logger.warning(f"Rate limited, waiting {retry_after}s")
+                    logger.warning(f"⚠️ Rate limited! Aspetto {retry_after}s (crediti: {self.available_credits}/{self.max_credits})")
                     time.sleep(retry_after)
                     continue
                 else:
@@ -123,6 +174,9 @@ class ShopifyClient:
                 url = f"{self.base_url}/products.json"
                 self._rate_limit()
                 response = requests.get(url, headers=self.headers, params=params, timeout=30)
+                
+                # Aggiorna crediti dagli header
+                self._update_credits_from_header(response.headers)
                 
                 if response.status_code != 200:
                     logger.error(f"API error {response.status_code}: {response.text}")
