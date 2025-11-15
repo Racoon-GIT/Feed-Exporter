@@ -208,13 +208,14 @@ class ProductTransformer:
         if product_details:
             item['g:product_detail'] = product_details
         
-        # Custom Labels - Use Shopify collections with smart split
-        item['g:custom_label_0'] = self._get_custom_label_0(tags)
-        
-        # Split collections across custom_label_1 and custom_label_2
-        label_1, label_2 = self._split_collections_across_labels(collections)
+        # Custom Labels - Use Shopify collections (deduplicated)
+        # Split collections across custom_label_0 (100 char limit) and custom_label_1 (500 char limit)
+        label_0, label_1 = self._split_collections_across_labels(collections)
+        item['g:custom_label_0'] = label_0
         item['g:custom_label_1'] = label_1
-        item['g:custom_label_2'] = label_2
+        
+        # label_2, label_3, label_4 remain static from config
+        item['g:custom_label_2'] = self.static_values.get('custom_label_2', '')
         
         item['g:custom_label_3'] = self.static_values.get('custom_label_3', '')
         item['g:custom_label_4'] = self.static_values.get('custom_label_4', '')
@@ -412,71 +413,100 @@ class ProductTransformer:
         
         return details[:3]  # Max 3 details
     
-    def _get_custom_label_0(self, tags: List[str]) -> str:
-        """Return all Shopify tags as-is"""
-        # Use ALL tags from Shopify, joined by comma
-        return ', '.join(tags) if tags else ''
-    
-    def _split_collections_across_labels(self, collections: List[str], max_length: int = 500) -> tuple:
+    def _deduplicate_collections(self, collections: List[str]) -> List[str]:
         """
-        Split Shopify collections across custom_label_1 and custom_label_2
+        Remove duplicate collections (case-insensitive) while preserving order
+        
+        Args:
+            collections: List of collection names from Shopify
+        
+        Returns:
+            Deduplicated list
+        """
+        if not collections:
+            return []
+        
+        seen = set()
+        unique = []
+        
+        for collection in collections:
+            # Use lowercase for comparison
+            collection_lower = collection.lower().strip()
+            
+            if collection_lower and collection_lower not in seen:
+                seen.add(collection_lower)
+                unique.append(collection.strip())  # Keep original case
+        
+        return unique
+    
+    def _split_collections_across_labels(self, collections: List[str], label_0_limit: int = 100, label_1_limit: int = 500) -> tuple:
+        """
+        Split Shopify collections across custom_label_0 and custom_label_1
         without cutting or repeating words
         
         Args:
             collections: List of collection names from Shopify
-            max_length: Max characters per label (Google Shopping limit is 500)
+            label_0_limit: Max characters for custom_label_0 (Google Shopping limit is 100)
+            label_1_limit: Max characters for custom_label_1 (Google Shopping limit is 500)
         
         Returns:
-            (label_1, label_2) tuple
+            (label_0, label_1) tuple
         """
         if not collections:
             return ('', '')
         
-        # Join all collections with delimiter
-        full_text = ', '.join(collections)
+        # STEP 1: Remove duplicates (case-insensitive)
+        unique_collections = self._deduplicate_collections(collections)
         
-        # If everything fits in label_1, done
-        if len(full_text) <= max_length:
+        # STEP 2: Join all collections with delimiter
+        full_text = ', '.join(unique_collections)
+        
+        # STEP 2: Join all collections with delimiter
+        full_text = ', '.join(unique_collections)
+        
+        # STEP 3: Split between label_0 and label_1
+        # If everything fits in label_0, done
+        if len(full_text) <= label_0_limit:
             return (full_text, '')
         
         # Otherwise, split smartly without cutting words
+        label_0_parts = []
         label_1_parts = []
-        label_2_parts = []
         current_length = 0
         overflow = False
         
-        for collection in collections:
+        for collection in unique_collections:
             # Calculate length with delimiter (", ")
             # +2 for ", " delimiter, but not for the first item
             item_length = len(collection) + (2 if current_length > 0 else 0)
             
-            if not overflow and current_length + item_length <= max_length:
-                # Fits in label_1
-                label_1_parts.append(collection)
+            if not overflow and current_length + item_length <= label_0_limit:
+                # Fits in label_0
+                label_0_parts.append(collection)
                 current_length += item_length
             else:
-                # Goes to label_2
+                # Goes to label_1
                 overflow = True
-                label_2_parts.append(collection)
+                label_1_parts.append(collection)
         
+        label_0 = ', '.join(label_0_parts)
         label_1 = ', '.join(label_1_parts)
-        label_2 = ', '.join(label_2_parts)
         
-        # Trim label_2 if it exceeds max_length (rare case with very long collection names)
-        if len(label_2) > max_length:
+        # Trim label_1 if it exceeds limit (rare case with very long collection names)
+        if len(label_1) > label_1_limit:
             # Find last complete collection that fits
-            label_2_trimmed = []
+            label_1_trimmed = []
             current = 0
-            for part in label_2_parts:
+            for part in label_1_parts:
                 part_len = len(part) + (2 if current > 0 else 0)
-                if current + part_len <= max_length:
-                    label_2_trimmed.append(part)
+                if current + part_len <= label_1_limit:
+                    label_1_trimmed.append(part)
                     current += part_len
                 else:
                     break
-            label_2 = ', '.join(label_2_trimmed)
+            label_1 = ', '.join(label_1_trimmed)
         
-        return (label_1, label_2)
+        return (label_0, label_1)
     
     def _get_product_highlight(self, product: Dict, tags: List[str]) -> str:
         """Extract key product highlights from title and description"""
