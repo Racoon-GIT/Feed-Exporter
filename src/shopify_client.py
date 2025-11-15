@@ -29,7 +29,7 @@ class ShopifyClient:
         }
         
         # Rate limiting (Shopify: 2 requests/second for standard plans)
-        self.min_request_interval = 0.5  # 500ms between requests
+        self.min_request_interval = 0.6  # 600ms between requests (conservative)
         self.last_request_time = 0
         
         # Retry settings
