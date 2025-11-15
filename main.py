@@ -131,10 +131,15 @@ class FeedGeneratorService:
                         logger.info(f"No more products, finished at page {page}")
                         break
                     
-                    # Filter active products (can't use status param with page_info)
-                    active_products = [p for p in products if p.get('status', '').lower() == 'active']
+                    # Filter active products strictly (can't use status param with page_info)
+                    active_products = []
+                    for p in products:
+                        status = p.get('status', '')
+                        if isinstance(status, str) and status.lower() == 'active':
+                            active_products.append(p)
                     
-                    logger.info(f"Page {page}: {len(active_products)} active products")
+                    filtered_count = len(products) - len(active_products)
+                    logger.info(f"Page {page}: {len(active_products)} active (filtered {filtered_count} inactive)")
                     
                     # Process each product IMMEDIATELY (don't accumulate)
                     for product in active_products:
