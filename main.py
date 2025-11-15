@@ -1,18 +1,15 @@
 """
-Main Feed Generator - v4.0 PAGE-BY-PAGE STREAMING
-Memory-efficient processing for 512MB RAM limit
+Main Feed Generator - v4.1 SINCE_ID PAGINATION
+Uses since_id instead of page_info to allow status=active filter on all pages
 
 ARCHITECTURE:
 1. Open XML generator
-2. Fetch ONE page (250 products)
-3. Process each product immediately:
-   - Fetch metafields + collections
-   - Transform to Google Shopping items
-   - Write directly to XML
-4. Clear memory and fetch next page
-5. Repeat until no more pages
+2. Fetch ONE page (250 active products) using since_id
+3. Process each product immediately
+4. Update since_id and fetch next page
+5. Stop when no more products
 
-This avoids loading all products in memory at once
+ADVANTAGE: No Python filtering needed - API returns ONLY active products
 """
 
 import os
@@ -20,7 +17,6 @@ import sys
 import logging
 import gc
 import requests
-import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -64,15 +60,10 @@ class FeedGeneratorService:
         
     def generate_feed(self):
         """
-        Generate complete Google Shopping feed with page-by-page streaming
+        Generate Google Shopping feed with since_id pagination
         
-        MEMORY-EFFICIENT ARCHITECTURE:
-        - Fetch ONE page at a time (250 products)
-        - Process immediately (no accumulation)
-        - Write to XML and clear memory
-        - Repeat for next page
-        
-        Keeps memory <400MB even with 16,000+ products
+        Uses since_id instead of page_info so we can keep status='active' filter
+        on ALL pages - no Python filtering needed!
         """
         try:
             start_time = datetime.now(timezone.utc)
@@ -90,29 +81,27 @@ class FeedGeneratorService:
                 description="Custom sneakers and footwear from Racoon Lab"
             )
             
-            # Step 2: Process page by page
+            # Step 2: Process page by page with since_id
             logger.info("="*80)
-            logger.info("Processing products (page-by-page streaming)...")
+            logger.info("Processing products (since_id pagination)...")
             
             total_items = 0
             total_products = 0
             page = 1
-            page_info = None
+            last_product_id = 0
             
             while True:
-                # Fetch ONE page
                 logger.info(f"Fetching page {page}...")
                 
                 params = {
+                    'status': 'active',  # ✅ Works with since_id!
                     'limit': 250,
+                    'order': 'id asc',  # Required for since_id
                     'fields': 'id,title,handle,vendor,product_type,tags,body_html,variants,images,image,status'
                 }
                 
-                # Only add status filter on first page (Shopify API restriction)
-                if not page_info:
-                    params['status'] = 'active'
-                else:
-                    params['page_info'] = page_info
+                if last_product_id > 0:
+                    params['since_id'] = last_product_id
                 
                 url = f"https://{self.client.shop_url}/admin/api/2024-10/products.json"
                 
@@ -131,18 +120,11 @@ class FeedGeneratorService:
                         logger.info(f"No more products, finished at page {page}")
                         break
                     
-                    # Filter active products strictly (can't use status param with page_info)
-                    active_products = []
-                    for p in products:
-                        status = p.get('status', '')
-                        if isinstance(status, str) and status.lower() == 'active':
-                            active_products.append(p)
+                    # All products are active (filtered by API)
+                    logger.info(f"Page {page}: {len(products)} active products")
                     
-                    filtered_count = len(products) - len(active_products)
-                    logger.info(f"Page {page}: {len(active_products)} active (filtered {filtered_count} inactive)")
-                    
-                    # Process each product IMMEDIATELY (don't accumulate)
-                    for product in active_products:
+                    # Process each product IMMEDIATELY
+                    for product in products:
                         try:
                             # Fetch metafields + collections
                             product_with_meta = self.client.get_product_with_metafields_and_collections(product)
@@ -165,34 +147,26 @@ class FeedGeneratorService:
                     
                     logger.info(f"Page {page} complete: {total_products} products total, {total_items} items total")
                     
-                    # Check for next page
-                    link_header = response.headers.get('Link', '')
-                    if 'rel="next"' in link_header:
-                        match = re.search(r'page_info=([^&>]+)', link_header)
-                        if match:
-                            page_info = match.group(1)
-                            page += 1
-                            
-                            # Clear memory after each page
-                            gc.collect()
-                        else:
-                            break
-                    else:
-                        break
+                    # Update since_id for next page
+                    last_product_id = products[-1]['id']
+                    page += 1
+                    
+                    # Clear memory
+                    gc.collect()
                         
                 except Exception as e:
                     logger.error(f"Error fetching page {page}: {e}")
                     break
             
-            # Step 3: Close XML generator
+            # Step 3: Close XML
             logger.info("="*80)
             logger.info("Finalizing XML...")
             xml_generator.end_feed()
             
-            # Success metrics
+            # Metrics
             end_time = datetime.now(timezone.utc)
             duration = (end_time - start_time).total_seconds()
-            file_size = output_file.stat().st_size / (1024 * 1024)  # MB
+            file_size = output_file.stat().st_size / (1024 * 1024)
             
             logger.info("="*80)
             logger.info("FEED GENERATION COMPLETED")
@@ -211,7 +185,7 @@ class FeedGeneratorService:
 
 
 def main():
-    """Main entry point for cron job"""
+    """Main entry point"""
     try:
         generator = FeedGeneratorService()
         success = generator.generate_feed()
