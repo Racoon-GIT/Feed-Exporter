@@ -6,7 +6,7 @@ Writes items directly to file without storing in memory
 """
 
 import logging
-from typing import Dict, Optional, TextIO
+from typing import Dict, List, Optional, TextIO
 import xml.etree.ElementTree as ET
 
 logger = logging.getLogger(__name__)
