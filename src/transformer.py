@@ -81,14 +81,13 @@ class ProductTransformer:
         if 'outlet' in title:
             return True
         
-        # FILTER 3: Exclude specific product types (case-insensitive)
+        # FILTER 3: Exclude specific product types (case-insensitive substring match)
         product_type = product.get('product_type', '').lower()
         
-        # Use word boundary matching for exact word matches (not substrings)
+        # Use simple substring matching (not word boundary)
+        # This allows 'calz' to match "Calzini", "Calzature", "Calze"
         for excluded in self.excluded_product_types:
-            # \b ensures we match whole words only
-            # Example: 'calzi' matches "Calzini" but NOT "Calzature"
-            if re.search(r'\b' + re.escape(excluded) + r'\b', product_type, re.IGNORECASE):
+            if excluded in product_type:
                 return True
         
         return False
@@ -284,26 +283,34 @@ class ProductTransformer:
         return item
     
     def _extract_metafields(self, metafields: Dict) -> Dict:
-        """Extract metafields into a flat dictionary"""
+        """
+        Extract metafields into a flat dictionary
+        
+        Args:
+            metafields: Already organized by namespace from shopify_client
+                       Format: {'mm-google-shopping': {'gender': 'female', ...}, 'stamped': {...}}
+        
+        Returns:
+            Flat dict with all relevant metafield values
+        """
         data = {}
-        for mf in metafields.get('metafields', []):
-            namespace = mf.get('namespace', '')
-            key = mf.get('key', '')
-            value = mf.get('value', '')
-            
-            # Google Shopping metafields
-            if namespace == 'mm-google-shopping':
+        
+        # Google Shopping metafields (namespace: mm-google-shopping)
+        if 'mm-google-shopping' in metafields:
+            for key, value in metafields['mm-google-shopping'].items():
                 data[key] = value
-            
-            # Stamped.io review metafields
-            elif namespace == 'stamped':
+        
+        # Stamped.io review metafields (namespace: stamped)
+        if 'stamped' in metafields:
+            for key, value in metafields['stamped'].items():
                 if key in ['reviews_average', 'reviews_count', 'rating', 'count']:
                     data[key] = value
-            
-            # Other review app namespaces
-            elif namespace == 'reviews':
+        
+        # Other review app namespaces
+        if 'reviews' in metafields:
+            for key, value in metafields['reviews'].items():
                 data[key] = value
-                
+        
         return data
     
     def _build_title(self, product: Dict, variant: Dict) -> str:
