@@ -131,10 +131,10 @@ class StreamingXMLGenerator:
         if get_field('pattern'):
             self._write_field('g:pattern', get_field('pattern'))
         
-        # Product detail - handle nested structure
+        # Product detail - handle as nested XML structure
         product_detail = get_field('product_detail')
-        if product_detail:
-            self._write_field('g:product_detail', product_detail)
+        if product_detail and isinstance(product_detail, list):
+            self._write_product_details(product_detail)
         
         # Item group ID (for variants)
         if get_field('item_group_id'):
@@ -185,6 +185,29 @@ class StreamingXMLGenerator:
         if value is not None and str(value).strip():
             escaped_value = self._escape(str(value))
             self.file.write(f'      <{name}>{escaped_value}</{name}>\n')
+    
+    def _write_product_details(self, details: List[Dict[str, str]]):
+        """
+        Write product_detail fields as nested XML
+        
+        Format:
+        <g:product_detail>
+          <g:attribute_name>Name</g:attribute_name>
+          <g:attribute_value>Value</g:attribute_value>
+        </g:product_detail>
+        
+        Args:
+            details: List of dicts with 'attribute_name' and 'attribute_value'
+        """
+        for detail in details:
+            attribute_name = detail.get('attribute_name', '')
+            attribute_value = detail.get('attribute_value', '')
+            
+            if attribute_name and attribute_value:
+                self.file.write('      <g:product_detail>\n')
+                self.file.write(f'        <g:attribute_name>{self._escape(attribute_name)}</g:attribute_name>\n')
+                self.file.write(f'        <g:attribute_value>{self._escape(attribute_value)}</g:attribute_value>\n')
+                self.file.write('      </g:product_detail>\n')
     
     def _escape(self, text: str) -> str:
         """Escape XML special characters"""

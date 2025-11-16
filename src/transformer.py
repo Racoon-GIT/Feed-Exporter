@@ -4,8 +4,13 @@ Version: 3.0 - With Star Rating & Multiple Images
 """
 
 import re
+import json
+import logging
 from datetime import datetime
 from typing import Dict, List, Any, Optional
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 class ProductTransformer:
@@ -18,6 +23,50 @@ class ProductTransformer:
         
         # Excluded product type keywords (case-insensitive)
         self.excluded_product_types = ['buon', 'gift', 'pacco', 'berretti', 'calze', 'calzi', 'shirt', 'felp', 'stringhe', 'outlet']
+        
+        # Load product mappings from JSON (for product_highlight and product_detail)
+        self.product_mappings = self._load_product_mappings()
+    
+    def _load_product_mappings(self) -> Dict:
+        """
+        Load product_highlight and product_detail mappings from JSON file
+        
+        Returns:
+            Dictionary with key=(handle, variant_sku) → {product_highlight, product_detail}
+        """
+        mappings_file = Path('config/product_mappings.json')
+        
+        # Check alternative locations
+        if not mappings_file.exists():
+            mappings_file = Path('product_mappings.json')
+        
+        if not mappings_file.exists():
+            logger.warning(f"Product mappings file not found at {mappings_file}. Will use tag-based fallback.")
+            return {}
+        
+        try:
+            with open(mappings_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            # Build lookup dictionary: (handle, sku) → data
+            lookup = {}
+            for item in data:
+                handle = item.get('handle', '')
+                sku = item.get('variant_sku', '')
+                
+                if handle and sku:
+                    key = (handle, sku)
+                    lookup[key] = {
+                        'product_highlight': item.get('product_highlight', []),
+                        'product_detail': item.get('product_detail', [])
+                    }
+            
+            logger.info(f"✅ Loaded {len(lookup)} product mappings from {mappings_file}")
+            return lookup
+            
+        except Exception as e:
+            logger.error(f"Error loading product mappings: {e}")
+            return {}
     
     def _should_exclude_product(self, product: Dict) -> bool:
         """Check if product should be excluded based on various criteria"""
@@ -204,7 +253,7 @@ class ProductTransformer:
             item['g:pattern'] = pattern
         
         # Product Details (structured attributes)
-        product_details = self._get_product_details(tags)
+        product_details = self._get_product_details(product, variant, tags)
         if product_details:
             item['g:product_detail'] = product_details
         
@@ -227,7 +276,7 @@ class ProductTransformer:
         item['g:is_bundle'] = 'TRUE'
         
         # Product Highlight
-        item['g:product_highlight'] = self._get_product_highlight(product, tags)
+        item['g:product_highlight'] = self._get_product_highlight(product, variant, tags)
         
         # TAGS (for internal tracking)
         item['g:TAGS'] = ', '.join(tags)
@@ -391,8 +440,37 @@ class ProductTransformer:
         # Return empty string to skip field if not found
         return ''
     
-    def _get_product_details(self, tags: List[str]) -> List[Dict[str, str]]:
-        """Extract structured product details from tags"""
+    def _get_product_details(self, product: Dict, variant: Dict, tags: List[str]) -> List[Dict[str, str]]:
+        """
+        Extract structured product details
+        
+        Priority:
+        1. JSON mappings (by handle + SKU)
+        2. Tag-based fallback
+        
+        Returns:
+            List of dicts with 'attribute_name' and 'attribute_value' (Google Shopping format)
+        """
+        handle = product.get('handle', '')
+        sku = variant.get('sku', '')
+        
+        # Try JSON lookup first
+        if handle and sku:
+            key = (handle, sku)
+            if key in self.product_mappings:
+                json_details = self.product_mappings[key].get('product_detail', [])
+                
+                if json_details:
+                    # Remove section_name field (not needed for Google Shopping)
+                    cleaned_details = []
+                    for detail in json_details:
+                        cleaned_details.append({
+                            'attribute_name': detail.get('attribute_name', ''),
+                            'attribute_value': detail.get('attribute_value', '')
+                        })
+                    return cleaned_details
+        
+        # Fallback: Tag-based extraction
         details = []
         
         detail_mapping = {
@@ -508,8 +586,32 @@ class ProductTransformer:
         
         return (label_0, label_1)
     
-    def _get_product_highlight(self, product: Dict, tags: List[str]) -> str:
-        """Extract key product highlights from title and description"""
+    def _get_product_highlight(self, product: Dict, variant: Dict, tags: List[str]) -> str:
+        """
+        Extract key product highlights
+        
+        Priority:
+        1. JSON mappings (by handle + SKU) - returns comma-separated string
+        2. Title + description fallback
+        
+        Returns:
+            Comma-separated string of highlights (max 500 chars for Google Shopping)
+        """
+        handle = product.get('handle', '')
+        sku = variant.get('sku', '')
+        
+        # Try JSON lookup first
+        if handle and sku:
+            key = (handle, sku)
+            if key in self.product_mappings:
+                json_highlights = self.product_mappings[key].get('product_highlight', [])
+                
+                if json_highlights:
+                    # Join highlights with comma
+                    highlights_str = ', '.join(json_highlights)
+                    return highlights_str[:500]  # Google Shopping limit
+        
+        # Fallback: Title + description
         title = product.get('title', '')
         description = self._clean_html(product.get('body_html', ''))
         
