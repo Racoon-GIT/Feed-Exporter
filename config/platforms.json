@@ -1,0 +1,22 @@
+{
+  "comment": "Feature flags - Controlla quali feed generare",
+  "platforms": {
+    "google": {
+      "enabled": true,
+      "feed_filename": "google_shopping_feed.xml",
+      "title": "Racoon Lab - Google Shopping Feed",
+      "description": "Custom sneakers and footwear from Racoon Lab"
+    },
+    "meta": {
+      "enabled": true,
+      "feed_filename": "meta_catalog_feed.xml",
+      "title": "Racoon Lab - Meta Catalog Feed",
+      "description": "Facebook & Instagram product catalog from Racoon Lab"
+    }
+  },
+  "settings": {
+    "backup_previous_feed": true,
+    "validate_before_save": true,
+    "collect_metrics": true
+  }
+}
