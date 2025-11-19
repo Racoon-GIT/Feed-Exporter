@@ -1,1 +1,1 @@
-# Racoon Lab Feed Manager - Source Modules
+# Source modules
