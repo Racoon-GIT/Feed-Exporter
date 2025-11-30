@@ -235,9 +235,9 @@ class BaseMapper(ABC):
     
     def _build_hierarchical_product_type(self, product: Dict) -> str:
         """
-        Build hierarchical product_type: Macro Category > Brand > Model
+        Build hierarchical product_type: Calzature > Macro Category > Brand > Model
         
-        Example: "Sneakers > Adidas > Stan Smith"
+        Example: "Calzature > Sneakers > Adidas > Stan Smith"
         
         Args:
             product: Shopify product dict
@@ -254,8 +254,8 @@ class BaseMapper(ABC):
             self.product_type_mapping.get('default', 'Sneakers')
         )
         
-        # Build hierarchy
-        parts = [macro_category]
+        # Build hierarchy - Start with "Calzature" as top level
+        parts = ['Calzature', macro_category]
         
         if brand:
             parts.append(brand)
