@@ -82,14 +82,20 @@ class StreamingXMLGenerator:
         self._write_field('g:link', get_field('link'))
         self._write_field('g:image_link', get_field('image_link'))
         
-        # Additional images
+        # Additional images - Write one XML tag per image (Google Shopping requirement)
         additional_images = get_field('additional_image_link')
         if additional_images:
-            # Handle both string (comma-separated) and list formats
             if isinstance(additional_images, list):
-                self._write_field('g:additional_image_link', ','.join(additional_images))
+                # Write separate tag for each image
+                for img_url in additional_images:
+                    if img_url and img_url.strip():
+                        self._write_field('g:additional_image_link', img_url.strip())
             else:
-                self._write_field('g:additional_image_link', additional_images)
+                # If string with comma-separated values, split and write separately
+                img_urls = str(additional_images).split(',')
+                for img_url in img_urls:
+                    if img_url and img_url.strip():
+                        self._write_field('g:additional_image_link', img_url.strip())
         
         # Price and availability
         self._write_field('g:availability', get_field('availability'))
