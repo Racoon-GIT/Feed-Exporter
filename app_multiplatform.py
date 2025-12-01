@@ -1,21 +1,75 @@
 """
 Web Server for Multi-Platform Feed Distribution
 Serves Google Shopping and Meta Catalog feeds with unified health monitoring
+Includes internal scheduled job for automatic feed generation
 """
 
 from flask import Flask, send_file, jsonify, render_template_string
 from pathlib import Path
 import json
 import os
+import logging
 from datetime import datetime
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+import atexit
 
 app = Flask(__name__)
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Paths
 PUBLIC_DIR = Path('public')
 GOOGLE_FEED_PATH = PUBLIC_DIR / 'google_shopping_feed.xml'
 META_FEED_PATH = PUBLIC_DIR / 'meta_catalog_feed.xml'
 METRICS_PATH = PUBLIC_DIR / 'feed_metrics.json'
+
+
+def generate_feeds_job():
+    """
+    Background job to generate all feeds
+    This runs automatically every day at 6:00 AM UTC
+    """
+    try:
+        logger.info("="*80)
+        logger.info(f"🔄 Scheduled feed generation started at {datetime.utcnow().isoformat()}")
+        logger.info("="*80)
+        
+        # Import and run orchestrator
+        from orchestrator import FeedOrchestrator
+        
+        orchestrator = FeedOrchestrator()
+        success = orchestrator.generate_all_feeds()
+        
+        if success:
+            logger.info("✅ Scheduled feed generation completed successfully!")
+        else:
+            logger.error("❌ Scheduled feed generation failed!")
+            
+    except Exception as e:
+        logger.error(f"💥 Error in scheduled feed generation: {e}", exc_info=True)
+
+
+# Initialize scheduler
+scheduler = BackgroundScheduler(daemon=True)
+
+# Schedule feed generation daily at 6:00 AM UTC (7:00 AM CET)
+scheduler.add_job(
+    func=generate_feeds_job,
+    trigger=CronTrigger(hour=6, minute=0, timezone='UTC'),
+    id='feed_generation_job',
+    name='Generate all feeds',
+    replace_existing=True
+)
+
+# Start scheduler
+scheduler.start()
+logger.info("✅ Scheduler started - Feeds will be generated daily at 6:00 AM UTC")
+
+# Shutdown scheduler when app exits
+atexit.register(lambda: scheduler.shutdown())
 
 
 @app.route('/')
@@ -48,10 +102,12 @@ def index():
                 padding-left: 20px;
                 margin: 20px 0;
             }
-            .platform-card.meta { border-left-color: #1877f2; }
-            .status { padding: 10px; border-radius: 4px; margin: 10px 0; }
-            .success { background: #d4edda; color: #155724; }
-            .error { background: #f8d7da; color: #721c24; }
+            .meta-card {
+                border-left: 4px solid #4267B2;
+            }
+            .status-good { color: #28a745; }
+            .status-warning { color: #ffc107; }
+            .status-error { color: #dc3545; }
             .btn {
                 display: inline-block;
                 padding: 10px 20px;
@@ -62,209 +118,237 @@ def index():
                 margin: 5px;
             }
             .btn:hover { background: #0056b3; }
-            .btn.meta { background: #1877f2; }
-            .btn.meta:hover { background: #145dbf; }
-            table { width: 100%; border-collapse: collapse; margin: 20px 0; }
-            td { padding: 10px; border-bottom: 1px solid #eee; }
-            td:first-child { font-weight: bold; width: 200px; }
-            .footer { text-align: center; color: #666; margin-top: 40px; }
+            .btn-meta { background: #4267B2; }
+            .btn-meta:hover { background: #365899; }
+            .metric { 
+                display: inline-block;
+                margin: 10px 20px 10px 0;
+                padding: 10px;
+                background: #f8f9fa;
+                border-radius: 4px;
+            }
+            .metric-label { 
+                font-size: 0.85em;
+                color: #666;
+                text-transform: uppercase;
+            }
+            .metric-value {
+                font-size: 1.5em;
+                font-weight: bold;
+                color: #333;
+            }
+            .info-box {
+                background: #e7f3ff;
+                padding: 15px;
+                border-radius: 4px;
+                border-left: 4px solid #007bff;
+                margin: 20px 0;
+            }
+            .schedule-info {
+                background: #fff3cd;
+                padding: 10px 15px;
+                border-radius: 4px;
+                border-left: 4px solid #ffc107;
+                margin: 15px 0;
+                font-size: 0.9em;
+            }
         </style>
     </head>
     <body>
         <div class="card">
             <h1>🎯 Racoon Lab Feed Manager</h1>
-            <p>Multi-Platform Feed Distribution: Google Shopping & Meta Catalog</p>
+            <p><strong>Multi-Platform Feed Distribution:</strong> Google Shopping & Meta Catalog</p>
             
-            <div style="margin: 20px 0;">
+            <div class="schedule-info">
+                ⏰ <strong>Automatic Generation:</strong> Feeds are generated automatically every day at 6:00 AM UTC (7:00 AM CET)
+            </div>
+            
+            <div style="margin-top: 20px;">
                 <a href="/api/trigger" class="btn">🔄 Trigger Generation (All Feeds)</a>
                 <a href="/api/health" class="btn">📊 Health Status</a>
             </div>
         </div>
         
-        <!-- Google Shopping Feed -->
         <div class="card platform-card">
             <h2>📱 Google Shopping Feed</h2>
-            <div id="google-status"></div>
-            <table id="google-metrics"></table>
-            <div style="margin: 20px 0;">
-                <a href="/feed/google" class="btn">📥 Download Google Feed</a>
-            </div>
+            
+            {% if google_exists %}
+                <p class="status-good">✅ Google feed generated successfully</p>
+                
+                <div class="metric">
+                    <div class="metric-label">Products</div>
+                    <div class="metric-value">{{ google_metrics.get('total_products', 'N/A') }}</div>
+                </div>
+                
+                <div class="metric">
+                    <div class="metric-label">Items</div>
+                    <div class="metric-value">{{ google_metrics.get('total_items', 'N/A') }}</div>
+                </div>
+                
+                <div class="metric">
+                    <div class="metric-label">File Size</div>
+                    <div class="metric-value">{{ google_metrics.get('file_size_mb', 'N/A') }} MB</div>
+                </div>
+                
+                <div class="metric">
+                    <div class="metric-label">Generated</div>
+                    <div class="metric-value" style="font-size: 1em;">{{ google_metrics.get('generated_at', 'Unknown')[:19] }}</div>
+                </div>
+                
+                <div style="margin-top: 20px;">
+                    <a href="/feed/google" class="btn">📥 Download Google Feed</a>
+                </div>
+            {% else %}
+                <p class="status-warning">⚠️ Google feed not generated yet</p>
+                <p>No data available</p>
+                <div style="margin-top: 20px;">
+                    <a href="/feed/google" class="btn">📥 Download Google Feed</a>
+                </div>
+            {% endif %}
         </div>
         
-        <!-- Meta Catalog Feed -->
-        <div class="card platform-card meta">
+        <div class="card platform-card meta-card">
             <h2>📘 Meta (Facebook & Instagram) Catalog</h2>
-            <div id="meta-status"></div>
-            <table id="meta-metrics"></table>
-            <div style="margin: 20px 0;">
-                <a href="/feed/meta" class="btn meta">📥 Download Meta Feed</a>
-            </div>
+            
+            {% if meta_exists %}
+                <p class="status-good">✅ Meta feed generated successfully</p>
+                
+                <div class="metric">
+                    <div class="metric-label">Products</div>
+                    <div class="metric-value">{{ meta_metrics.get('total_products', 'N/A') }}</div>
+                </div>
+                
+                <div class="metric">
+                    <div class="metric-label">Items</div>
+                    <div class="metric-value">{{ meta_metrics.get('total_items', 'N/A') }}</div>
+                </div>
+                
+                <div class="metric">
+                    <div class="metric-label">File Size</div>
+                    <div class="metric-value">{{ meta_metrics.get('file_size_mb', 'N/A') }} MB</div>
+                </div>
+                
+                <div class="metric">
+                    <div class="metric-label">Generated</div>
+                    <div class="metric-value" style="font-size: 1em;">{{ meta_metrics.get('generated_at', 'Unknown')[:19] }}</div>
+                </div>
+                
+                <div style="margin-top: 20px;">
+                    <a href="/feed/meta" class="btn btn-meta">📥 Download Meta Feed</a>
+                </div>
+            {% else %}
+                <p class="status-warning">⚠️ Meta feed not generated yet</p>
+                <p>No data available</p>
+                <div style="margin-top: 20px;">
+                    <a href="/feed/meta" class="btn btn-meta">📥 Download Meta Feed</a>
+                </div>
+            {% endif %}
         </div>
         
-        <div class="card">
-            <h2>📋 API Endpoints</h2>
-            <table>
-                <tr>
-                    <td><code>GET /feed/google</code></td>
-                    <td>Download Google Shopping feed XML</td>
-                </tr>
-                <tr>
-                    <td><code>GET /feed/meta</code></td>
-                    <td>Download Meta catalog feed XML</td>
-                </tr>
-                <tr>
-                    <td><code>GET /api/health</code></td>
-                    <td>Health check for all platforms (JSON)</td>
-                </tr>
-                <tr>
-                    <td><code>POST /api/trigger</code></td>
-                    <td>Manually trigger feed generation (all platforms)</td>
-                </tr>
-            </table>
+        <div class="info-box">
+            <strong>ℹ️ Feed URLs:</strong><br>
+            Google Shopping: <code>{{ request.host_url }}feed/google</code><br>
+            Meta Catalog: <code>{{ request.host_url }}feed/meta</code>
         </div>
-        
-        <div class="footer">
-            <p>Racoon Lab Feed Manager v4.0 • Multi-Platform Architecture • Hosted on Render.com</p>
-        </div>
-        
-        <script>
-            fetch('/api/health')
-                .then(r => r.json())
-                .then(data => {
-                    // Google Feed Status
-                    const googleStatus = document.getElementById('google-status');
-                    const googleMetrics = document.getElementById('google-metrics');
-                    
-                    if (data.google && data.google.exists) {
-                        googleStatus.className = 'status success';
-                        googleStatus.innerHTML = '✅ Google feed is active';
-                        
-                        googleMetrics.innerHTML = `
-                            <tr><td>Last Generated</td><td>${data.google.generated_at || 'N/A'}</td></tr>
-                            <tr><td>Products</td><td>${data.google.products || 'N/A'}</td></tr>
-                            <tr><td>Items</td><td>${data.google.items || 'N/A'}</td></tr>
-                            <tr><td>File Size</td><td>${data.google.file_size_mb || 'N/A'} MB</td></tr>
-                        `;
-                    } else {
-                        googleStatus.className = 'status error';
-                        googleStatus.innerHTML = '⚠️ Google feed not generated yet';
-                        googleMetrics.innerHTML = '<tr><td colspan="2">No data available</td></tr>';
-                    }
-                    
-                    // Meta Feed Status
-                    const metaStatus = document.getElementById('meta-status');
-                    const metaMetrics = document.getElementById('meta-metrics');
-                    
-                    if (data.meta && data.meta.exists) {
-                        metaStatus.className = 'status success';
-                        metaStatus.innerHTML = '✅ Meta feed is active';
-                        
-                        metaMetrics.innerHTML = `
-                            <tr><td>Last Generated</td><td>${data.meta.generated_at || 'N/A'}</td></tr>
-                            <tr><td>Products</td><td>${data.meta.products || 'N/A'}</td></tr>
-                            <tr><td>Items</td><td>${data.meta.items || 'N/A'}</td></tr>
-                            <tr><td>File Size</td><td>${data.meta.file_size_mb || 'N/A'} MB</td></tr>
-                        `;
-                    } else {
-                        metaStatus.className = 'status error';
-                        metaStatus.innerHTML = '⚠️ Meta feed not generated yet';
-                        metaMetrics.innerHTML = '<tr><td colspan="2">No data available</td></tr>';
-                    }
-                })
-                .catch(err => {
-                    console.error('Error loading status:', err);
-                });
-        </script>
     </body>
     </html>
     """
-    return render_template_string(html)
+    
+    # Load metrics
+    google_metrics = {}
+    meta_metrics = {}
+    
+    if METRICS_PATH.exists():
+        try:
+            with open(METRICS_PATH, 'r') as f:
+                metrics = json.load(f)
+                google_metrics = metrics.get('google', {})
+                meta_metrics = metrics.get('meta', {})
+        except:
+            pass
+    
+    return render_template_string(
+        html,
+        google_exists=GOOGLE_FEED_PATH.exists(),
+        meta_exists=META_FEED_PATH.exists(),
+        google_metrics=google_metrics,
+        meta_metrics=meta_metrics
+    )
 
 
 @app.route('/feed/google')
-def get_google_feed():
-    """Serve Google Shopping feed"""
+def serve_google_feed():
+    """Serve Google Shopping feed XML"""
     if not GOOGLE_FEED_PATH.exists():
-        return jsonify({'error': 'Google feed not generated yet'}), 404
+        return jsonify({'error': 'Google feed not found. Please trigger generation first.'}), 404
     
     return send_file(
         GOOGLE_FEED_PATH,
         mimetype='application/xml',
-        as_attachment=False,
+        as_attachment=True,
         download_name='google_shopping_feed.xml'
     )
 
 
 @app.route('/feed/meta')
-def get_meta_feed():
-    """Serve Meta catalog feed"""
+def serve_meta_feed():
+    """Serve Meta Catalog feed XML"""
     if not META_FEED_PATH.exists():
-        return jsonify({'error': 'Meta feed not generated yet'}), 404
+        return jsonify({'error': 'Meta feed not found. Please trigger generation first.'}), 404
     
     return send_file(
         META_FEED_PATH,
         mimetype='application/xml',
-        as_attachment=False,
+        as_attachment=True,
         download_name='meta_catalog_feed.xml'
     )
 
 
 @app.route('/api/health')
 def api_health():
-    """Get health status for all platforms"""
+    """Health check endpoint with feed status"""
     
-    # Load metrics
-    metrics = {}
+    google_status = {
+        'exists': GOOGLE_FEED_PATH.exists(),
+        'file_size_mb': 0,
+        'generated_at': None
+    }
+    
+    meta_status = {
+        'exists': META_FEED_PATH.exists(),
+        'file_size_mb': 0,
+        'generated_at': None
+    }
+    
+    # Load metrics if available
     if METRICS_PATH.exists():
         try:
-            with open(METRICS_PATH) as f:
+            with open(METRICS_PATH, 'r') as f:
                 metrics = json.load(f)
+                
+                if 'google' in metrics:
+                    google_status.update(metrics['google'])
+                
+                if 'meta' in metrics:
+                    meta_status.update(metrics['meta'])
         except:
             pass
     
-    # Google feed status
-    google_status = {
-        'exists': GOOGLE_FEED_PATH.exists(),
-        'url': '/feed/google'
-    }
+    # Get file sizes
+    if google_status['exists']:
+        google_status['file_size_mb'] = round(GOOGLE_FEED_PATH.stat().st_size / (1024 * 1024), 2)
     
-    if GOOGLE_FEED_PATH.exists():
-        file_size = GOOGLE_FEED_PATH.stat().st_size / (1024 * 1024)
-        google_status['file_size_mb'] = round(file_size, 2)
-        
-        # Add metrics if available
-        if 'google' in metrics:
-            google_status.update({
-                'generated_at': metrics['google'].get('generated_at'),
-                'products': metrics['google'].get('total_products'),
-                'items': metrics['google'].get('total_items'),
-                'duration_seconds': metrics['google'].get('duration_seconds')
-            })
+    if meta_status['exists']:
+        meta_status['file_size_mb'] = round(META_FEED_PATH.stat().st_size / (1024 * 1024), 2)
     
-    # Meta feed status
-    meta_status = {
-        'exists': META_FEED_PATH.exists(),
-        'url': '/feed/meta'
-    }
-    
-    if META_FEED_PATH.exists():
-        file_size = META_FEED_PATH.stat().st_size / (1024 * 1024)
-        meta_status['file_size_mb'] = round(file_size, 2)
-        
-        # Add metrics if available
-        if 'meta' in metrics:
-            meta_status.update({
-                'generated_at': metrics['meta'].get('generated_at'),
-                'products': metrics['meta'].get('total_products'),
-                'items': metrics['meta'].get('total_items'),
-                'duration_seconds': metrics['meta'].get('duration_seconds')
-            })
+    overall_status = 'healthy' if (google_status['exists'] and meta_status['exists']) else 'partial'
     
     return jsonify({
-        'status': 'healthy',
-        'timestamp': datetime.utcnow().isoformat() + 'Z',
+        'status': overall_status,
+        'timestamp': datetime.utcnow().isoformat(),
         'google': google_status,
-        'meta': meta_status
+        'meta': meta_status,
+        'scheduled_generation': '6:00 AM UTC daily'
     })
 
 
@@ -272,44 +356,48 @@ def api_health():
 def api_trigger():
     """Manually trigger feed generation (all platforms)"""
     try:
-        import subprocess
+        logger.info("="*80)
+        logger.info("🔄 Manual feed generation triggered via API")
+        logger.info("="*80)
         
-        # Run orchestrator in background
-        process = subprocess.Popen(
-            ['python', 'orchestrator.py'],
-            stdout=None,
-            stderr=None,
-            cwd=os.getcwd()
-        )
+        # Import and run orchestrator
+        from orchestrator import FeedOrchestrator
         
-        return jsonify({
-            'success': True,
-            'message': 'Feed generation started for all platforms',
-            'pid': process.pid,
-            'note': 'Check service logs for progress. Feeds will be ready in ~15-20 minutes.',
-            'status_url': '/api/health'
-        })
+        orchestrator = FeedOrchestrator()
+        success = orchestrator.generate_all_feeds()
         
+        if success:
+            return jsonify({
+                'success': True,
+                'message': 'Feed generation completed successfully',
+                'timestamp': datetime.utcnow().isoformat()
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': 'Feed generation completed with errors',
+                'timestamp': datetime.utcnow().isoformat()
+            }), 500
+            
     except Exception as e:
+        logger.error(f"Error in manual feed generation: {e}", exc_info=True)
         return jsonify({
             'success': False,
-            'message': f'Error starting feed generation: {str(e)}'
+            'error': str(e),
+            'timestamp': datetime.utcnow().isoformat()
         }), 500
 
 
 @app.route('/health')
 def health():
-    """Simple health check endpoint"""
-    return jsonify({
-        'status': 'healthy',
-        'timestamp': datetime.utcnow().isoformat() + 'Z'
-    })
+    """Simple health check for Render"""
+    return 'OK', 200
 
 
 if __name__ == '__main__':
-    # Create public directory
+    # Ensure public directory exists
     PUBLIC_DIR.mkdir(exist_ok=True)
     
-    # Run server
+    # Run the app
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
