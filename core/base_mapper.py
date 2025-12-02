@@ -239,6 +239,9 @@ class BaseMapper(ABC):
         
         Example: "Calzature > Sneakers > Adidas > Stan Smith"
         
+        Uses exact match first, then partial matching for flexible categorization
+        Example: "Boot Premium 6-Inch" matches "Boot" → "Stivali"
+        
         Args:
             product: Shopify product dict
         
@@ -248,11 +251,21 @@ class BaseMapper(ABC):
         brand = product.get('vendor', '')
         model = product.get('product_type', '')
         
-        # Get macro category from mapping
-        macro_category = self.product_type_mapping.get('mappings', {}).get(
-            model,
-            self.product_type_mapping.get('default', 'Sneakers')
-        )
+        # Try exact match first
+        macro_category = self.product_type_mapping.get('mappings', {}).get(model)
+        
+        # If no exact match, try partial matching (case-insensitive)
+        if not macro_category and model:
+            model_lower = model.lower()
+            for key, value in self.product_type_mapping.get('mappings', {}).items():
+                # Check if mapping key is contained in the product_type
+                if key.lower() in model_lower:
+                    macro_category = value
+                    break
+        
+        # Fall back to default if still not found
+        if not macro_category:
+            macro_category = self.product_type_mapping.get('default', 'Sneakers')
         
         # Build hierarchy - Start with "Calzature" as top level
         parts = ['Calzature', macro_category]
