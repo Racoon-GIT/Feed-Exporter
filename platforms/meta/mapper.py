@@ -184,52 +184,29 @@ class MetaMapper(BaseMapper):
     
     def _build_title_meta(self, product: Dict, variant: Dict, tags: List[str], metafield_data: Dict) -> str:
         """
-        Build Meta-optimized title
+        Build Meta title using Shopify product title + size
         
-        Formula (Excel): Brand + modello + tips + genere + colore/feature principale
+        Simple and clean: uses the already-optimized Shopify title
         Target: 65 characters max for optimal Meta display
         
         Args:
             product: Shopify product
             variant: Shopify variant
-            tags: Product tags
-            metafield_data: Extracted metafields
+            tags: Product tags (not used, kept for compatibility)
+            metafield_data: Extracted metafields (not used, kept for compatibility)
         
         Returns:
-            Optimized title string (max 65 chars)
+            Title string (max 65 chars)
         """
-        parts = []
+        # Start with Shopify product title
+        title = product.get('title', '')
         
-        # 1. Brand
-        brand = product.get('vendor', '')
-        if brand:
-            parts.append(brand)
-        
-        # 2. Modello (product_type)
-        model = product.get('product_type', '')
-        if model:
-            parts.append(model)
-        
-        # 3. Genere (gender from metafields)
-        gender = metafield_data.get('gender', '')
-        if gender:
-            gender_map = {
-                'female': 'Donna',
-                'male': 'Uomo',
-                'unisex': 'Unisex'
-            }
-            gender_it = gender_map.get(gender.lower(), gender)
-            parts.append(gender_it)
-        
-        # 4. Taglia (size)
+        # Add size
         size = variant.get('option1', '')
         if size:
-            parts.append(f"Taglia {size}")
+            title = f"{title} Taglia {size}"
         
-        # Build title
-        title = ' '.join(parts)
-        
-        # Truncate to 65 characters if needed
+        # Truncate to 65 characters if needed (Meta recommendation)
         if len(title) > 65:
             title = title[:62] + '...'
         
