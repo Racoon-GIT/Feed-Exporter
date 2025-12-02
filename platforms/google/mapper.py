@@ -127,7 +127,8 @@ class GoogleMapper(BaseMapper):
         
         # ========== CATEGORY & TYPE (MAPPING AREA 7) ==========
         item['g:google_product_category'] = self.static_values.get('google_product_category', '187')
-        item['g:product_type'] = product.get('product_type', '')
+        # Use hierarchical product_type: "Calzature > Sneakers > Adidas > Samba"
+        item['g:product_type'] = self._build_hierarchical_product_type(product)
         
         # ========== SIZE & MATERIAL & PATTERN (MAPPING AREA 8) ==========
         item['g:size'] = variant.get('option1', '')
@@ -172,25 +173,19 @@ class GoogleMapper(BaseMapper):
     # ========== GOOGLE-SPECIFIC HELPER METHODS ==========
     
     def _build_title_google(self, product: Dict, variant: Dict) -> str:
-        """Build Google Shopping title"""
-        title_parts = []
+        """
+        Build Google Shopping title using Shopify product title + size
         
-        # Brand
-        brand = product.get('vendor', '')
-        if brand:
-            title_parts.append(brand)
+        Simple and clean: uses the already-optimized Shopify title
+        Example: "Adidas Samba Burgundy Pizzo Nero Taglia 39"
+        """
+        # Start with Shopify product title (already contains brand, model, features, colors)
+        title = product.get('title', '')
         
-        # Product type/model
-        product_type = product.get('product_type', '')
-        if product_type:
-            title_parts.append(product_type)
-        
-        # Size
+        # Add size
         size = variant.get('option1', '')
         if size:
-            title_parts.append(f"Taglia {size}")
-        
-        title = ' '.join(title_parts)
+            title = f"{title} - Taglia {size}"
         
         # Limit to 150 characters (Google Shopping limit)
         if len(title) > 150:
