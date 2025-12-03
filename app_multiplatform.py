@@ -354,30 +354,41 @@ def api_health():
 
 @app.route('/api/trigger', methods=['GET', 'POST'])
 def api_trigger():
-    """Manually trigger feed generation (all platforms)"""
+    """Manually trigger feed generation (all platforms) in background thread"""
     try:
         logger.info("="*80)
         logger.info("🔄 Manual feed generation triggered via API")
         logger.info("="*80)
         
-        # Import and run orchestrator
-        from orchestrator import FeedOrchestrator
+        # Define generation function to run in background
+        def run_generation():
+            """Execute feed generation in background thread"""
+            try:
+                from orchestrator import FeedOrchestrator
+                
+                orchestrator = FeedOrchestrator()
+                success = orchestrator.generate_all_feeds()
+                
+                if success:
+                    logger.info("✅ Manual feed generation completed successfully!")
+                else:
+                    logger.error("❌ Manual feed generation completed with errors!")
+                    
+            except Exception as e:
+                logger.error(f"💥 Error in manual feed generation: {e}", exc_info=True)
         
-        orchestrator = FeedOrchestrator()
-        success = orchestrator.generate_all_feeds()
+        # Start generation in background thread (daemon=True for cleanup)
+        import threading
+        thread = threading.Thread(target=run_generation, daemon=True)
+        thread.start()
         
-        if success:
-            return jsonify({
-                'success': True,
-                'message': 'Feed generation completed successfully',
-                'timestamp': datetime.utcnow().isoformat()
-            })
-        else:
-            return jsonify({
-                'success': False,
-                'message': 'Feed generation completed with errors',
-                'timestamp': datetime.utcnow().isoformat()
-            }), 500
+        # Return immediately - generation continues in background
+        return jsonify({
+            'success': True,
+            'message': 'Feed generation started in background. Check status in ~25 minutes.',
+            'timestamp': datetime.utcnow().isoformat(),
+            'note': 'This is an async operation. Refresh the dashboard after completion.'
+        })
             
     except Exception as e:
         logger.error(f"Error in manual feed generation: {e}", exc_info=True)
