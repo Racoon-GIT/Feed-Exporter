@@ -1,11 +1,11 @@
 {
   "comment": "Mapping tra product_type Shopify e macro categorie per product_type Meta/Google",
   "mappings": {
-    "101 6 Occhielli"; "Stivali",
-    "1460 8 Occhielli"; "Stivali",
+    "101 6 Occhielli": "Stivali",
+    "1460 8 Occhielli": "Stivali",
     "Air Force 1"; "Sneakers",
     "Air Jordan Mid"; "Sneakers",
-    "All Star Alte"; "Sneakers",
+    "All Star Alte": "Sneakers",
     "All Star Basse"; "Sneakers",
     "All Star Cribster"; "Sneakers",
     "All Star Lugged Tela"; "Sneakers",
