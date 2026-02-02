@@ -1,0 +1,75 @@
+# ============================================================================
+# Render.com Blueprint - Feed Exporter (Cron Job Dormiente)
+# ============================================================================
+#
+# STRATEGIA: Cron Job sempre dormiente, triggerato manualmente via Scheduler
+#
+# SCHEDULE: "0 0 31 2 *" = 31 Febbraio (impossibile) → MAI auto-eseguito
+# TRIGGER: Via Deploy Hook da Scheduler app (daily 6 AM) o manuale da Cronmaster
+#
+# COSTI: FREE TIER
+#   - 750 ore/mese gratis
+#   - Consumo stimato: 25 min/giorno × 30 giorni = 12.5 ore/mese
+#   - Costo mensile: $0
+#
+# ============================================================================
+
+services:
+  - type: cron
+    name: feed-exporter
+    runtime: python
+    region: frankfurt
+    plan: free
+
+    # ⭐ SCHEDULE IMPOSSIBILE = SEMPRE DORMIENTE ⭐
+    # 31 Febbraio non esiste → job NON si auto-esegue mai
+    # Trigger SOLO via Deploy Hook (da Scheduler o Cronmaster)
+    schedule: "0 0 31 2 *"
+
+    # Build & Start Commands
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python orchestrator.py"
+
+    # Environment Variables
+    envVars:
+      # Shopify Configuration (REQUIRED)
+      - key: SHOPIFY_SHOP_URL
+        sync: false  # Configura nel Render Dashboard
+
+      - key: SHOPIFY_ACCESS_TOKEN
+        sync: false  # Configura nel Render Dashboard
+
+      # Shop Configuration (OPTIONAL)
+      - key: SHOP_BASE_URL
+        value: "https://racoon-lab.it"
+
+      - key: SHOPIFY_API_VERSION
+        value: "2024-10"
+
+    # Auto-deploy on push
+    autoDeploy: false  # Disabilitato per evitare deploy accidentali
+
+# ============================================================================
+# ISTRUZIONI POST-DEPLOY
+# ============================================================================
+#
+# 1. OTTIENI DEPLOY HOOK:
+#    - Render Dashboard → feed-exporter → Settings → Deploy Hook
+#    - Copy URL: https://api.render.com/deploy/srv_xxxxx?key=yyyyy
+#
+# 2. CONFIGURA SCHEDULER:
+#    {
+#      "name": "Feed-Exporter Daily 6 AM",
+#      "url": "<DEPLOY_HOOK_URL>",
+#      "method": "POST",
+#      "schedule": "0 6 * * *",
+#      "timezone": "Europe/Rome",
+#      "enabled": true
+#    }
+#
+# 3. TEST MANUALE:
+#    - Cronmaster → Trova feed-exporter → Click "Trigger"
+#    - Oppure: POST request al Deploy Hook URL
+#    - Controlla logs: Render Dashboard → feed-exporter → Logs
+#
+# ============================================================================
