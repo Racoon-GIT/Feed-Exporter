@@ -10,9 +10,10 @@ import json
 import os
 import logging
 from datetime import datetime
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
-import atexit
+# APScheduler imports removed - no longer needed for internal scheduling
+# from apscheduler.schedulers.background import BackgroundScheduler
+# from apscheduler.triggers.cron import CronTrigger
+# import atexit
 
 app = Flask(__name__)
 
@@ -52,24 +53,19 @@ def generate_feeds_job():
         logger.error(f"💥 Error in scheduled feed generation: {e}", exc_info=True)
 
 
-# Initialize scheduler
-scheduler = BackgroundScheduler(daemon=True)
-
-# Schedule feed generation daily at 6:00 AM UTC (7:00 AM CET)
-scheduler.add_job(
-    func=generate_feeds_job,
-    trigger=CronTrigger(hour=6, minute=0, timezone='UTC'),
-    id='feed_generation_job',
-    name='Generate all feeds',
-    replace_existing=True
-)
-
-# Start scheduler
-scheduler.start()
-logger.info("✅ Scheduler started - Feeds will be generated daily at 6:00 AM UTC")
-
-# Shutdown scheduler when app exits
-atexit.register(lambda: scheduler.shutdown())
+# APScheduler disabled - scheduling now handled by external Scheduler app
+# This allows the service to run on Render FREE tier without consuming hours
+# when not actively generating feeds. The external Scheduler app triggers
+# feed generation via /api/trigger endpoint and keeps service alive during execution.
+#
+# Previous internal scheduling (now disabled):
+# - Daily generation at 6:00 AM UTC (7:00 AM CET)
+# - Managed by APScheduler BackgroundScheduler
+#
+# New external scheduling:
+# - Scheduler app calls /api/trigger at 6:00 AM UTC
+# - Scheduler app pings /health every 5 minutes during 5:00-7:59 UTC window
+# - Service spins down outside generation window to save FREE tier hours
 
 
 @app.route('/')
@@ -160,7 +156,7 @@ def index():
             <p><strong>Multi-Platform Feed Distribution:</strong> Google Shopping & Meta Catalog</p>
             
             <div class="schedule-info">
-                ⏰ <strong>Automatic Generation:</strong> Feeds are generated automatically every day at 6:00 AM UTC (7:00 AM CET)
+                ⏰ <strong>Automatic Generation:</strong> Feeds are generated automatically every day at 6:00 AM UTC (7:00 AM CET) via external Scheduler
             </div>
             
             <div style="margin-top: 20px;">
@@ -348,7 +344,7 @@ def api_health():
         'timestamp': datetime.utcnow().isoformat(),
         'google': google_status,
         'meta': meta_status,
-        'scheduled_generation': '6:00 AM UTC daily'
+        'scheduled_generation': '6:00 AM UTC daily (external Scheduler)'
     })
 
 
