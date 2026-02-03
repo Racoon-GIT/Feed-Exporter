@@ -190,19 +190,25 @@ class BaseMapper(ABC):
         return False
     
     def _clean_html(self, html: str) -> str:
-        """Remove HTML tags from description"""
+        """Remove HTML tags and invisible characters from description"""
         if not html:
             return ""
-        
+
         import re
+        # Remove BOM and zero-width characters
+        text = html.replace('\ufeff', '')  # BOM / zero-width no-break space
+        text = text.replace('\u200b', '')  # zero-width space
+        text = text.replace('\u200c', '')  # zero-width non-joiner
+        text = text.replace('\u200d', '')  # zero-width joiner
+        text = text.replace('\u2060', '')  # word joiner
         # Remove HTML tags
-        text = re.sub(r'<[^>]+>', '', html)
+        text = re.sub(r'<[^>]+>', '', text)
         # Remove extra whitespace
         text = ' '.join(text.split())
         # Truncate to 5000 characters (Google Shopping limit)
         if len(text) > 5000:
             text = text[:4997] + '...'
-        
+
         return text.strip()
     
     def _extract_metafields(self, metafields: Dict) -> Dict:
