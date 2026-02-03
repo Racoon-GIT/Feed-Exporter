@@ -155,10 +155,6 @@ def index():
             <h1>🎯 Racoon Lab Feed Manager</h1>
             <p><strong>Multi-Platform Feed Distribution:</strong> Google Shopping & Meta Catalog</p>
             
-            <div class="schedule-info">
-                ⏰ <strong>Automatic Generation:</strong> Feeds are generated automatically every day at 6:00 AM UTC (7:00 AM CET) via external Scheduler
-            </div>
-            
             <div style="margin-top: 20px;">
                 <a href="/api/trigger" class="btn">🔄 Trigger Generation (All Feeds)</a>
                 <a href="/api/health" class="btn">📊 Health Status</a>
@@ -344,48 +340,45 @@ def api_health():
         'timestamp': datetime.utcnow().isoformat(),
         'google': google_status,
         'meta': meta_status,
-        'scheduled_generation': '6:00 AM UTC daily (external Scheduler)'
+        'data_source': 'MySQL'
     })
 
 
 @app.route('/api/trigger', methods=['GET', 'POST'])
 def api_trigger():
     """Manually trigger feed generation (all platforms) in background thread"""
+    from flask import redirect
+
     try:
         logger.info("="*80)
         logger.info("🔄 Manual feed generation triggered via API")
         logger.info("="*80)
-        
+
         # Define generation function to run in background
         def run_generation():
             """Execute feed generation in background thread"""
             try:
                 from orchestrator import FeedOrchestrator
-                
+
                 orchestrator = FeedOrchestrator()
                 success = orchestrator.generate_all_feeds()
-                
+
                 if success:
                     logger.info("✅ Manual feed generation completed successfully!")
                 else:
                     logger.error("❌ Manual feed generation completed with errors!")
-                    
+
             except Exception as e:
                 logger.error(f"💥 Error in manual feed generation: {e}", exc_info=True)
-        
+
         # Start generation in background thread (daemon=True for cleanup)
         import threading
         thread = threading.Thread(target=run_generation, daemon=True)
         thread.start()
-        
-        # Return immediately - generation continues in background
-        return jsonify({
-            'success': True,
-            'message': 'Feed generation started in background. Check status in ~25 minutes.',
-            'timestamp': datetime.utcnow().isoformat(),
-            'note': 'This is an async operation. Refresh the dashboard after completion.'
-        })
-            
+
+        # Redirect to home page
+        return redirect('/')
+
     except Exception as e:
         logger.error(f"Error in manual feed generation: {e}", exc_info=True)
         return jsonify({
