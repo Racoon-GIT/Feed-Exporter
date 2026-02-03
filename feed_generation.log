@@ -1,0 +1,72 @@
+2026-02-03 11:48:57,651 - INFO - Initializing Feed Orchestrator...
+2026-02-03 11:48:57,689 - INFO - 🔄 Using MySQL data source
+2026-02-03 11:48:57,911 - INFO - package: mysql.connector.plugins
+2026-02-03 11:48:57,912 - INFO - plugin_name: mysql_native_password
+2026-02-03 11:48:57,913 - INFO - AUTHENTICATION_PLUGIN_CLASS: MySQLNativePasswordAuthPlugin
+2026-02-03 11:48:58,101 - INFO - ✅ Connected to MySQL: racoon
+2026-02-03 11:48:58,102 - INFO - START: Feed Orchestrator at 2026-02-03T10:48:58.102786+00:00
+2026-02-03 11:48:58,102 - INFO - Data source: MySQL
+2026-02-03 11:48:58,103 - INFO - ================================================================================
+2026-02-03 11:48:58,103 - INFO - Enabled platforms: google, meta
+2026-02-03 11:48:58,103 - INFO - ================================================================================
+2026-02-03 11:48:58,103 - INFO - 
+================================================================================
+2026-02-03 11:48:58,103 - INFO - GENERATING GOOGLE FEED
+2026-02-03 11:48:58,103 - INFO - ================================================================================
+
+2026-02-03 11:48:58,121 - INFO - ✅ Started streaming XML feed: public/google_shopping_feed.xml
+2026-02-03 11:48:58,122 - INFO - 📡 Fetching products from MySQL...
+2026-02-03 11:49:29,432 - INFO - 📊 Loaded 7900 variants from MySQL
+2026-02-03 11:49:29,519 - INFO - 📦 Grouped into 719 products
+2026-02-03 11:49:29,536 - INFO - Processing 719 products for google...
+2026-02-03 11:49:29,767 - INFO -   Progress: 100 products, 1101 items
+2026-02-03 11:49:29,979 - INFO -   Progress: 200 products, 2199 items
+2026-02-03 11:49:30,166 - INFO -   Progress: 300 products, 3254 items
+2026-02-03 11:49:30,372 - INFO -   Progress: 400 products, 4344 items
+2026-02-03 11:49:30,577 - INFO -   Progress: 500 products, 5504 items
+2026-02-03 11:49:30,766 - INFO -   Progress: 600 products, 6536 items
+2026-02-03 11:49:30,975 - INFO -   Progress: 700 products, 7621 items
+2026-02-03 11:49:31,018 - INFO - ✅ Closed XML feed with 7775 items
+2026-02-03 11:49:31,018 - INFO - 
+GOOGLE FEED METRICS:
+2026-02-03 11:49:31,018 - INFO -   Data source: MySQL
+2026-02-03 11:49:31,018 - INFO -   Products: 719
+2026-02-03 11:49:31,018 - INFO -   Items: 7775
+2026-02-03 11:49:31,018 - INFO -   File size: 35.39 MB
+2026-02-03 11:49:31,018 - INFO -   Duration: 33s (0.5min)
+2026-02-03 11:49:31,032 - INFO - ✅ GOOGLE feed generated successfully
+2026-02-03 11:49:31,032 - INFO - 
+================================================================================
+2026-02-03 11:49:31,032 - INFO - GENERATING META FEED
+2026-02-03 11:49:31,032 - INFO - ================================================================================
+
+2026-02-03 11:49:31,045 - INFO - ✅ Started Meta XML feed: public/meta_catalog_feed.xml
+2026-02-03 11:49:31,045 - INFO - 📡 Fetching products from MySQL...
+2026-02-03 11:50:09,060 - INFO - 📊 Loaded 7900 variants from MySQL
+2026-02-03 11:50:09,130 - INFO - 📦 Grouped into 719 products
+2026-02-03 11:50:09,150 - INFO - Processing 719 products for meta...
+2026-02-03 11:50:09,379 - INFO -   Progress: 100 products, 1101 items
+2026-02-03 11:50:09,584 - INFO -   Progress: 200 products, 2199 items
+2026-02-03 11:50:09,792 - INFO -   Progress: 300 products, 3254 items
+2026-02-03 11:50:10,015 - INFO -   Progress: 400 products, 4344 items
+2026-02-03 11:50:10,232 - INFO -   Progress: 500 products, 5504 items
+2026-02-03 11:50:10,430 - INFO -   Progress: 600 products, 6536 items
+2026-02-03 11:50:10,634 - INFO -   Progress: 700 products, 7621 items
+2026-02-03 11:50:10,676 - INFO - ✅ Closed Meta XML feed with 7775 items
+2026-02-03 11:50:10,676 - INFO - 
+META FEED METRICS:
+2026-02-03 11:50:10,677 - INFO -   Data source: MySQL
+2026-02-03 11:50:10,677 - INFO -   Products: 719
+2026-02-03 11:50:10,677 - INFO -   Items: 7775
+2026-02-03 11:50:10,677 - INFO -   File size: 51.80 MB
+2026-02-03 11:50:10,677 - INFO -   Duration: 40s (0.7min)
+2026-02-03 11:50:10,688 - INFO - ✅ META feed generated successfully
+2026-02-03 11:50:10,689 - INFO - ✅ Metrics saved to public/feed_metrics.json
+2026-02-03 11:50:10,690 - INFO - 🔌 MySQL connection closed
+2026-02-03 11:50:10,690 - INFO - 
+================================================================================
+2026-02-03 11:50:10,690 - INFO - FEED ORCHESTRATOR COMPLETED
+2026-02-03 11:50:10,690 - INFO - Data source: MySQL
+2026-02-03 11:50:10,690 - INFO - Total duration: 73s (1.2min)
+2026-02-03 11:50:10,690 - INFO - Success: 2/2 platforms
+2026-02-03 11:50:10,690 - INFO - ================================================================================

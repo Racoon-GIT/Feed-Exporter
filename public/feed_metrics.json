@@ -1,0 +1,24 @@
+{
+  "google": {
+    "platform": "google",
+    "data_source": "mysql",
+    "generated_at": "2026-02-03T10:49:31.018605+00:00",
+    "total_products": 719,
+    "total_items": 7775,
+    "file_size_mb": 35.39,
+    "duration_seconds": 33.0,
+    "feed_filename": "google_shopping_feed.xml",
+    "success": true
+  },
+  "meta": {
+    "platform": "meta",
+    "data_source": "mysql",
+    "generated_at": "2026-02-03T10:50:10.676958+00:00",
+    "total_products": 719,
+    "total_items": 7775,
+    "file_size_mb": 51.8,
+    "duration_seconds": 40.0,
+    "feed_filename": "meta_catalog_feed.xml",
+    "success": true
+  }
+}
